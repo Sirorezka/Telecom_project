@@ -16,6 +16,9 @@ $RECYCLE.BIN/
 
 # Windows shortcuts
 *.lnk
+*.csv
+*.xlsx
+*.docx
 
 # =========================
 # Operating System Files
