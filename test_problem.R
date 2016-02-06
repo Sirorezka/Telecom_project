@@ -3,18 +3,31 @@ if (!require (dplyr)) install.packages ("dplyr")
 if (!require (tidyr)) install.packages ("tidyr")
 if (!require (ggplot2)) install.packages ("ggplot2")
 if (!require (gtools)) install.packages ("gtools")
+if (!require (party)) install.packages ("party")
+if (!require (rpart)) install.packages ("rpart")
+if (!require (caret)) install.packages ("caret")
+if (!require (geosphere)) install.packages ("geosphere")
+
 
 require (xlsx)
 require (dplyr)
 require (tidyr)
 require (ggplot2)
+require (party)
+require (rpart)
+require (caret)
+require (geosphere)
+
+source ('my_utils.R')
+
+MAKE_PLOTS = F
 
 ####
 ####  --- Reading data sets  ----
 ####
 
-#mywd <- "C:/Users/Johnny/Documents/GitHub/test_task"
-mywd <- "C:/Users/Ivan.Petrov/Documents/GitHub/test_task"
+mywd <- "C:/Users/Johnny/Documents/GitHub/test_task"
+#mywd <- "C:/Users/Ivan.Petrov/Documents/GitHub/test_task"
 setwd (mywd)
 getwd()
 data_fact <- read.xlsx ("data/01_facts.xlsx", sheetIndex=1, header= FALSE) 
@@ -29,9 +42,11 @@ data_tac <- read.csv2 ("data/03_devices.csv", header= FALSE, quote = '"')
 
 tt <- gsub('"','',data_tac[,1], perl=TRUE)
 col_names <- strsplit (tt[1],",",perl=TRUE)[[1]]
+col_names[2:4] <- c("device_vendor","device_platform","device_type")
 tt <- tt[2:length(tt)]
 
 data_tac <- as.data.frame(tt) %>% separate("tt",into = col_names, sep = ",")
+
 
 
 ####
@@ -67,6 +82,7 @@ data_fact <- data_fact[order(data_fact [,1]),]
 ####  --- Preparing data table ----
 ####
 
+
 # changing time to minutes
 sec <- data[,'tstamp']/1000 
 data[,'tstamp'] <- as.POSIXct(sec,origin = "1970-01-01",tz = "Europe/Moscow")
@@ -79,15 +95,13 @@ data[,'tstamp'] <- c1
 all_msisdn <- unique(data[,'msisdn'])
 all_msisdn <- all_msisdn[order(all_msisdn)]
 
-z <- all_msisdn
-all_comb <- data.frame(c(NULL,NULL))
-#for(i in 1:(length(z)-1)){
+# joining tac
+data[,'tac'] <- substr(data[,'imei'],1,8)
+data <- data %>% left_join (data_tac, by=("tac"))
+data[is.na(data$device_type),"device_type"] = -1
+data[is.na(data$device_platform),"device_platform"] = -1
+data[is.na(data$device_vendor),"device_vendor"] = -1
 
-for(i in 1:45){
-  t <- as.data.frame(cbind(z[i], all_msisdn[all_msisdn>z[i]]))
-  all_comb <- bind_rows (all_comb,t)
-  all_comb <- as.data.frame(all_comb)
-}
 
 
 
@@ -98,40 +112,100 @@ for(i in 1:45){
 ####
 
 
-gr1 <- c( 158530004641, 158528850493,158524011021)
+#gr1 <- c( 158530004641, 158528850493,158524011021)
+
 
 
 # plot all paths on one graph with imei codes. We are searching for data with matching imei codes
-for (i in 1:nrow(data_fact[,])){
 
-  #i <- 1
-  gr1 <- data_fact[i,]  # msisdns that will be plotted
-  gr_sample <- data[data[,'msisdn'] %in% gr1,c("msisdn","imei","tstamp","long","lat","start_angle","end_angle")]
-  class(gr_sample[,'msisdn']) <- 'character'
-  
-  
-  # generating plot labels and removing duplicated lables
-  d_labels <- as.character(gr_sample[,'imei']) 
-  labels_dupl <- duplicated (gr_sample[,c('imei','msisdn','long','lat')]) 
-  d_labels[labels_dupl] <- ""
-  
-  v_jitter <- runif(nrow(gr_sample), 0, 3) # labels jitter
-  
-  track_plot <- ggplot(gr_sample, aes(x= long, y=lat)) + geom_point(alpha=0.2, aes(color=msisdn),size=8)
-  track_plot <- track_plot + geom_point(shape = 1,size = 8,colour = "black")
-  #track_plot <- track_plot+ geom_point() +geom_text(data=gr_sample, aes(x=long, y = lat,label=d_labels),size=4,hjust=0, vjust=v_jitter)
-  track_plot <- track_plot + facet_grid(. ~ msisdn ) + ggtitle(paste0("Series # ",i))
-  track_plot
-  
-  filename <- paste0(i,"_",data_fact[i,1],"_",data_fact[i,2],".jpg")
-  ggsave(filename, plot = track_plot, path = "plots_imei",  dpi = 300)
-}
+if (MAKE_PLOTS) plot_all_fact_data (data_fact, data)
 
 
 
 
-i <- 85
-gr1 <- data_fact[i,]  # msisdns that will be plotted
+
+##
+##  Generating train set
+##
+
+all_fact_ids <- c(data_fact[,1],data_fact[,2])
+data_train <- data[data[,'msisdn'] %in% all_fact_ids,]
+source ('my_utils.R')
+
+y_train <- generate_all_combin (all_fact_ids)
+y_train[,"class"] <- 0
+
+## defining msisdn match class
+aa <- paste0(y_train[,"V1"],"_",y_train[,"V2"], collapse = NULL)
+bb <- paste0(data_fact[,1],"_",data_fact[,2], collapse = NULL)
+class1 <- aa %in% bb
+y_train[class1,"class"] <- 1
+
+## we need to take all pairs from class 1 and make sample for class zero
+y_train_1 <- y_train[y_train$class==1,]
+y_train_0 <- y_train[y_train$class==0,]
+y_train_0 <- y_train_0[sample(nrow(y_train_0),1100),]
+
+y_train <- bind_rows(y_train_1,y_train_0)
+rm(y_train_0,y_train_1)
+
+
+if (MAKE_PLOTS) plot_all_y_train (y_train, data)
+
+
+
+
+###
+###    Generating factors
+###
+
+all_factors <- y_train[,c('V1','V2')]
+
+
+# joining cids to train table
+tt <- data[,c('msisdn','cid')] %>% group_by(msisdn) %>% summarise(cids = list(unique(cid)))
+
+all_factors <- all_factors %>% left_join (tt, by = c('V1' = 'msisdn'), copy= T)
+all_factors <- all_factors %>% left_join (tt, by = c('V2' = 'msisdn'), copy= T)
+names(all_factors)[3:4] <- c('cids_V1','cids_V2') 
+
+
+# computing SymmetricSimilarity
+all_factors$cids_V1
+all_factors <- all_factors %>% group_by(V1,V2) %>% 
+    mutate(ss =length(intersect(cids_V1[[1]],cids_V2[[1]]))/ length(unique(cids_V1[[1]],cids_V2[[1]])))
+
+
+# computing S2
+all_factors <- all_factors %>% group_by(V1,V2) %>% 
+  mutate(s2 =length(intersect(cids_V1[[1]],cids_V2[[1]]))/ min(length(cids_V1[[1]]),length(cids_V2[[1]])))
+
+
+# computing S3
+all_factors <- all_factors %>% group_by(V1,V2) %>% 
+  mutate(s3 =length(intersect(cids_V1[[1]],cids_V2[[1]]))/ ( ( length(cids_V1[[1]]) +length(cids_V2[[1]]))/2 ))
+
+
+
+
+write.table(y_train, "pr_data/y_train.csv", sep=",")
+
+fact_short <- all_factors [,!(colnames(all_factors) %in% c("cids_V1","cids_V2"))]
+write.table(y_train, "pr_data/y_train.csv", sep=",")
+write.table(fact_short, "pr_data/factors.csv", sep=",")
+
+
+y_pred <- read.csv2 ("pr_data/y_pred.csv", header= FALSE, quote = '"', colClasses= c('numeric'))
+not_matched <- y_train[y_train[,'class'] != y_pred,]
+
+nrow(not_matched)
+plot_all_y_train (not_matched, data, img_path="non_matched")
+
+
+
+
+i <- 11
+gr1 <- not_matched[i,]  # msisdns that will be plotted
 gr_sample <- data[data[,'msisdn'] %in% gr1,c("msisdn","imei","tstamp","long","lat","start_angle","end_angle")]
 gr_sample <- data[data[,'msisdn'] %in% gr1,]
 
@@ -144,11 +218,50 @@ d_labels[labels_dupl] <- ""
 
 v_jitter <- runif(nrow(gr_sample), 0, 3) # labels jitter
 
-track_plot <- ggplot(gr_sample, aes(x= long, y=lat)) + geom_point(alpha=0.2, aes(color=msisdn),size=8)
+track_plot <- ggplot(gr_sample, aes(x= long, y=lat)) + geom_point(alpha=0.2, aes(color=device_type ),size=8)
 track_plot <- track_plot + geom_point(shape = 1,size = 8,colour = "black")
 #track_plot <- track_plot+ geom_point() +geom_text(data=gr_sample, aes(x=long, y = lat,label=d_labels),size=4,hjust=0, vjust=v_jitter)
 track_plot <- track_plot + facet_grid(. ~ msisdn ) + ggtitle(paste0("Series # ",i))
 track_plot
 
 
+install.packages ("geosphere")
+require ("geosphere")
 
+
+
+cid_1 <- c('7743','11362')
+cid_1 <- c('7736','550')
+cid_2 <- c('7742','10379')
+
+pp <- data$lac == cid_1[1] & data$cid == cid_1[2]
+point1 <- data[pp, c('long','lat','max_dist','start_angle','end_angle')][1,]
+
+pp <- data$lac == cid_2[1] & data$cid == cid_2[2]
+point2 <- data[pp,c('long','lat','max_dist','start_angle','end_angle')][1,]
+
+
+p1_all_coord <- get_triangle_area (point1)
+p2_all_coord <- get_triangle_area (point2)
+
+p1_all_coord[2,1] <- p1_all_coord[2,1] - 0.001
+p1_all_coord[2,2] <- p1_all_coord[2,2] + 0.001
+
+
+# looking for points of intersection between two stations
+p_inter1 <- get_all_edges_intersect (p1_all_coord, p2_all_coord)
+p_inter2 <- get_all_inner_intersec (point1,point2, p1_all_coord, p2_all_coord)
+p_inter <- bind_rows (p_inter1, p_inter2)  
+
+
+p_all_coord <- bind_rows(p1_all_coord,p2_all_coord)
+
+track_plot <- ggplot()  + geom_point(data= p_all_coord,alpha=0.2,aes(x= lon, y=lat,color=row.names(p_all_coord)), size=8)
+track_plot
+track_plot + geom_point(data = p_inter, aes(x = lon, y= lat),  size=8)
+
+
+p1_all_coord[1,]
+p1_all_coord[2,]
+p2_all_coord[1,]
+p2_all_coord[2,]

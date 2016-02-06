@@ -1,0 +1,233 @@
+if (!require ("geosphere")) install.packages ("geosphere")
+require ("geosphere")
+
+
+generate_all_combin <- function (ids){
+  
+  z <- ids
+  
+  all_comb <- data.frame(c(NULL,NULL))
+  for(i in 1:(length(z)-1)){
+    t <- as.data.frame(cbind(z[i], z[z>z[i]]))
+    all_comb <- bind_rows (all_comb,t)
+    all_comb <- as.data.frame(all_comb)
+  }
+  
+  all_comb
+}
+
+
+as.numeric.factor <- function(x) {as.numeric(levels(x))[x]}
+
+
+
+
+
+plot_all_y_train <- function (y_train, data, img_path ='plots_train_imei'){
+  
+  for (i in 1:nrow(y_train[,])){
+    
+    #i <- 400
+    gr1 <- y_train[i,]  # msisdns that will be plotted
+    #gr_sample <- data[data[,'msisdn'] %in% gr1,c("msisdn","imei","tstamp","long","lat","start_angle","end_angle")]
+    gr_sample <- data[data[,'msisdn'] %in% gr1,]
+    class(gr_sample[,'msisdn']) <- 'character'
+    
+    
+    # generating plot labels and removing duplicated lables
+    d_labels <- as.character(gr_sample[,'imei']) 
+    labels_dupl <- duplicated (gr_sample[,c('imei','msisdn','long','lat')]) 
+    d_labels[labels_dupl] <- ""
+    
+    v_jitter <- runif(nrow(gr_sample), 0, 3) # labels jitter
+    
+    track_plot <- ggplot(gr_sample, aes(x= long, y=lat)) + geom_point(alpha=0.2, aes(color=device_type),size=8)
+    track_plot <- track_plot + geom_point(shape = 1,size = 8,colour = "black")
+    #track_plot <- track_plot+ geom_point() +geom_text(data=gr_sample, aes(x=long, y = lat,label=d_labels),size=4,hjust=0, vjust=v_jitter)
+    track_plot <- track_plot + facet_grid(. ~ msisdn ) + ggtitle(paste0("Series # ",i," -- class #",y_train[i,"class"]))
+    track_plot
+    
+    filename <- paste0(i,"_",y_train[i,1],"_",y_train[i,2],".jpg")
+    ggsave(filename, plot = track_plot, path = img_path, width = 14, height = 7,  dpi = 300)
+  }
+  
+
+}
+
+
+plot_all_fact_data <- function (data_fact, data, img_path ='plots_imei'){
+  
+  
+  for (i in 1:nrow(data_fact[,])){
+    
+    #i <- 1
+    gr1 <- data_fact[i,]  # msisdns that will be plotted
+    #gr_sample <- data[data[,'msisdn'] %in% gr1,c("msisdn","imei","tstamp","long","lat","start_angle","end_angle")]
+    gr_sample <- data[data[,'msisdn'] %in% gr1,]
+    class(gr_sample[,'msisdn']) <- 'character'
+    
+    
+    # generating plot labels and removing duplicated lables
+    d_labels <- as.character(gr_sample[,'imei']) 
+    labels_dupl <- duplicated (gr_sample[,c('imei','msisdn','long','lat')]) 
+    d_labels[labels_dupl] <- ""
+    
+    v_jitter <- runif(nrow(gr_sample), 0, 3) # labels jitter
+    
+    track_plot <- ggplot(gr_sample, aes(x= long, y=lat)) + geom_point(alpha=0.2, aes(color=device_type),size=8)
+    track_plot <- track_plot + geom_point(shape = 1,size = 8,colour = "black")
+    #track_plot <- track_plot+ geom_point() +geom_text(data=gr_sample, aes(x=long, y = lat,label=d_labels),size=4,hjust=0, vjust=v_jitter)
+    track_plot <- track_plot + facet_grid(. ~ msisdn ) + ggtitle(paste0("Series # ",i))
+    track_plot
+    
+    filename <- paste0(i,"_",data_fact[i,1],"_",data_fact[i,2],".jpg")
+    ggsave(filename, plot = track_plot, path = img_path, width = 14, height = 7,  dpi = 300)
+  }
+}
+
+
+
+##
+##  Function takes point as an input and builds 3x2 matrix with 'lon' and 'lat' 
+##
+##  input:
+##  ***  point1 should have c('long','lat','max_dist','start_angle','end_angle')
+##
+
+get_triangle_area <- function (point1){
+  
+  p1_coord1 <- data.frame()
+  p1_coord1[1,'lon'] <- as.numeric.factor (point1$long )
+  p1_coord1[1,'lat'] <- as.numeric.factor (point1$lat )
+  
+  p1_coord2 <- destPoint(p1_coord1,point1$start_angle, point1$max_dist)
+  p1_coord3 <- destPoint(p1_coord1,point1$end_angle, point1$max_dist)
+  
+  
+  p1_all_coord <- bind_rows (as.data.frame((p1_coord1)),as.data.frame(p1_coord2),as.data.frame(p1_coord3))
+  
+  p1_all_coord
+}
+
+
+
+
+##
+##  Function search for intersections between edges of the triangles 
+##
+##  input:
+##  ***  p1_all_coord and p2_all_coord are 3x2 matrixes with 'lon' and 'lat'
+##
+
+
+## search for intersection
+
+get_all_edges_intersect <- function (p1_all_coord, p2_all_coord){
+  
+  p_intesect <- data.frame()
+  all_comb <- list(c(1,2),c(1,3),c(2,3))
+  
+  ## Search for intersections between triangles
+  for (i in all_comb)
+  {
+    for (j in all_comb){
+      
+      p1 <- p1_all_coord[i[1],]
+      p2 <- p1_all_coord[i[2],]
+      p3 <- p2_all_coord[j[1],]
+      p4 <- p2_all_coord[j[2],]
+      points <- gcIntersect(p1, p2, p3, p4)
+      k = 0
+      x_inter = F
+      if ( (points[1]-p1[1])*(points[1]-p2[1])<0) k=k+1
+      if (k==1) {x_inter = T
+      p_intesect <- bind_rows(p_intesect,data.frame(t(points[1:2])))
+      }
+      
+      k = 0
+      if ((points[3]-p1[1])*(points[3]-p2[1])<0) k = k+1
+      if (k==1) {x_inter = T
+      p_intesect <- bind_rows(p_intesect,data.frame(t(points[3:4])))
+      }
+      
+    }
+  }
+  
+  p_intesect <- as.data.frame (p_intesect)
+  names(p_intesect) <- c("lon","lat")
+  p_intesect
+}
+
+
+
+##
+## Search for vertexes that lie inside one of the triangles
+##
+## input:
+## ***  point1, point2 should have c('long','lat','max_dist','start_angle','end_angle')
+## ***  p1_all_coord and p2_all_coord are 3x2 matrixes with 'lon' and 'lat'
+##
+
+get_all_inner_intersec <- function (point1,point2, p1_all_coord,p2_all_coord){
+  
+  ##p1_all_coord <- get_triangle_area (point1)
+  ##p2_all_coord <- get_triangle_area (point2)
+  
+  
+  p_intesect <- data.frame()
+
+  ## Search for points that are inside the figure
+  for (i in 1:3){
+    
+    cur_point <- point2
+    p1 <- p2_all_coord[1,]
+    p2 <- p1_all_coord[i,]
+    dist <- distCosine(p1,p2)
+    bear <- bearingRhumb(p1, p2)
+    
+    #print (dist)
+    #print (bear)
+    
+    st_angle <- as.numeric.factor(cur_point$start_angle)
+    en_angle <- as.numeric.factor(cur_point$end_angle)
+    
+    inside_sector <- F
+    if (bear>st_angle & bear<en_angle) inside_sector = T
+    if (bear>st_angle & en_angle<st_angle) inside_sector = T
+    if (en_angle<st_angle & bear<en_angle) inside_sector = T
+    
+    if (dist<cur_point$max_dist & inside_sector) {
+      
+      p_intesect <- bind_rows(p_intesect,data.frame(p2))
+      }
+  }
+  
+  for (i in 1:3){
+    
+    cur_point <- point1
+    p1 <- p1_all_coord[1,]
+    p2 <- p2_all_coord[i,]
+    dist <- distCosine(p1,p2)
+    bear <- bearingRhumb(p1, p2)
+    
+    #print (dist)
+    #print (bear)
+    
+    st_angle <- as.numeric.factor(cur_point$start_angle)
+    en_angle <- as.numeric.factor(cur_point$end_angle)
+    
+    inside_sector <- F
+    if (bear>st_angle & bear<en_angle) inside_sector = T
+    if (bear>st_angle & en_angle<st_angle) inside_sector = T
+    if (en_angle<st_angle & bear<en_angle) inside_sector = T
+    
+    if (dist<cur_point$max_dist & inside_sector) {
+      
+      p_intesect <- bind_rows(p_intesect,data.frame(p2))
+    }
+  }
+ 
+  p_intesect <- as.data.frame (p_intesect)
+  names(p_intesect) <- c("lon","lat")
+  p_intesect
+}

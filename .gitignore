@@ -43,6 +43,9 @@ $RECYCLE.BIN/
 .VolumeIcon.icns
 plots/*.jpg
 plots_imei/*.jpg
+plots_train_imei/*.jpg
+non_matched/*.jpg
+
 
 # Directories potentially created on remote AFP share
 .AppleDB
