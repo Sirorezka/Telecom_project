@@ -97,8 +97,8 @@ plot_all_fact_data <- function (data_fact, data, img_path ='plots_imei'){
 get_triangle_area <- function (point1){
   
   p1_coord1 <- data.frame()
-  p1_coord1[1,'lon'] <- as.numeric.factor (point1$long )
-  p1_coord1[1,'lat'] <- as.numeric.factor (point1$lat )
+  p1_coord1[1,'lon'] <- point1$long 
+  p1_coord1[1,'lat'] <- point1$lat 
   
   p1_coord2 <- destPoint(p1_coord1,point1$start_angle, point1$max_dist)
   p1_coord3 <- destPoint(p1_coord1,point1$end_angle, point1$max_dist)
@@ -132,11 +132,13 @@ get_all_edges_intersect <- function (p1_all_coord, p2_all_coord){
   {
     for (j in all_comb){
       
+      
       p1 <- p1_all_coord[i[1],]
       p2 <- p1_all_coord[i[2],]
       p3 <- p2_all_coord[j[1],]
       p4 <- p2_all_coord[j[2],]
       points <- gcIntersect(p1, p2, p3, p4)
+      if (is.nan(points[1])) points <- c(0,0,0,0)
       k = 0
       x_inter = F
       if ( (points[1]-p1[1])*(points[1]-p2[1])<0) k=k+1
@@ -154,7 +156,7 @@ get_all_edges_intersect <- function (p1_all_coord, p2_all_coord){
   }
   
   p_intesect <- as.data.frame (p_intesect)
-  names(p_intesect) <- c("lon","lat")
+  if (nrow(p_intesect)>0) names(p_intesect) <- c("lon","lat")
   p_intesect
 }
 
@@ -188,8 +190,8 @@ get_all_inner_intersec <- function (point1,point2, p1_all_coord,p2_all_coord){
     #print (dist)
     #print (bear)
     
-    st_angle <- as.numeric.factor(cur_point$start_angle)
-    en_angle <- as.numeric.factor(cur_point$end_angle)
+    st_angle <- cur_point$start_angle
+    en_angle <- cur_point$end_angle
     
     inside_sector <- F
     if (bear>st_angle & bear<en_angle) inside_sector = T
@@ -213,8 +215,8 @@ get_all_inner_intersec <- function (point1,point2, p1_all_coord,p2_all_coord){
     #print (dist)
     #print (bear)
     
-    st_angle <- as.numeric.factor(cur_point$start_angle)
-    en_angle <- as.numeric.factor(cur_point$end_angle)
+    st_angle <- cur_point$start_angle
+    en_angle <- cur_point$end_angle
     
     inside_sector <- F
     if (bear>st_angle & bear<en_angle) inside_sector = T
@@ -228,6 +230,6 @@ get_all_inner_intersec <- function (point1,point2, p1_all_coord,p2_all_coord){
   }
  
   p_intesect <- as.data.frame (p_intesect)
-  names(p_intesect) <- c("lon","lat")
+  if (nrow(p_intesect)>0) names(p_intesect) <- c("lon","lat")
   p_intesect
 }

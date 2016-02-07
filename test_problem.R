@@ -7,6 +7,8 @@ if (!require (party)) install.packages ("party")
 if (!require (rpart)) install.packages ("rpart")
 if (!require (caret)) install.packages ("caret")
 if (!require (geosphere)) install.packages ("geosphere")
+if (!require (doParallel)) install.packages ("doParallel")
+if (!require (foreach)) install.packages ("foreach")
 
 
 require (xlsx)
@@ -17,6 +19,9 @@ require (party)
 require (rpart)
 require (caret)
 require (geosphere)
+require (doParallel)
+require (foreach)
+
 
 source ('my_utils.R')
 
@@ -102,7 +107,11 @@ data[is.na(data$device_type),"device_type"] = -1
 data[is.na(data$device_platform),"device_platform"] = -1
 data[is.na(data$device_vendor),"device_vendor"] = -1
 
-
+# converting long, lat, start_angle, end_angle to numeric
+data$long <- as.numeric.factor(data$long)
+data$lat <- as.numeric.factor(data$lat)
+data$start_angle <- as.numeric.factor(data$start_angle)
+data$end_angle <- as.numeric.factor(data$end_angle)
 
 
 #cbind(z[1], all_msisdn[all_msisdn>z[1]])
@@ -112,15 +121,10 @@ data[is.na(data$device_vendor),"device_vendor"] = -1
 ####
 
 
-#gr1 <- c( 158530004641, 158528850493,158524011021)
-
-
 
 # plot all paths on one graph with imei codes. We are searching for data with matching imei codes
 
 if (MAKE_PLOTS) plot_all_fact_data (data_fact, data)
-
-
 
 
 
@@ -198,8 +202,86 @@ write.table(fact_short, "pr_data/factors.csv", sep=",")
 y_pred <- read.csv2 ("pr_data/y_pred.csv", header= FALSE, quote = '"', colClasses= c('numeric'))
 not_matched <- y_train[y_train[,'class'] != y_pred,]
 
+
 nrow(not_matched)
-plot_all_y_train (not_matched, data, img_path="non_matched")
+if (MAKE_PLOTS) plot_all_y_train (not_matched, data, img_path="non_matched")
+
+
+
+
+###
+###  Processing lac areas - generating database with intersections
+###
+
+
+data_lac <- unique(data[, c('lac','cid','long','lat','max_dist','start_angle','end_angle')])
+
+
+# Plotting all lac points
+all_lac_plot <- ggplot(data=data_lac,aes(x=long, y=lat)) + geom_point(alpha=0.2,aes(color=lac), size=2)
+all_lac_plot
+ggsave ("all_cids.jpg", all_lac_plot, width = 10, height = 7)
+
+# Histogram for lac max distance
+hist(data_lac$max_dist, xlim = c(0,15000), breaks = 35)
+
+
+# generating matrix with intersections
+mm <- detectCores()
+cl <- makeCluster (mm)
+registerDoParallel (cl)
+
+res <- foreach (i = 1:4, .combine =rbind ) %dopar% {
+  
+  require ("geosphere")
+  require ("dplyr")
+  
+    
+  lac_intersect <- data.frame(NULL)
+  z <-  1: nrow(data_lac)
+  t <- as.data.frame(cbind(z[i], z[z>z[i]]))
+  
+  for (j in 1:nrow(t)){
+    
+    point1 <- data_lac[t[j,1],]
+    point2 <- data_lac[t[j,2],]
+    
+    p1_all_coord <- get_triangle_area (point1)
+    p2_all_coord <- get_triangle_area (point2)
+    
+    # looking for points of intersection between two stations
+    p_inter1 <- get_all_edges_intersect (p1_all_coord, p2_all_coord)
+    p_inter2 <- get_all_inner_intersec (point1,point2, p1_all_coord, p2_all_coord)
+    p_inter <- bind_rows (p_inter1, p_inter2)  
+    
+    df <- as.data.frame(t(c(data_lac$lac[t[j,1]],data_lac$lac[t[j,2]])))
+    if (nrow(p_inter)>0)  bind_rows(lac_intersect,df)
+    
+    
+  }
+  
+  return (lac_intersect)
+}
+
+stopCluster(cl)
+
+
+
+
+
+
+cid_1 <- c('7743','11362')
+cid_1 <- c('7736','550')
+cid_2 <- c('7742','10379')
+
+
+
+track_plot <- ggplot()  + geom_point(data= p_all_coord,alpha=0.2,aes(x= lon, y=lat,color=row.names(p_all_coord)), size=8)
+track_plot
+track_plot + geom_point(data = p_inter, aes(x = lon, y= lat),  size=8)
+
+
+
 
 
 
@@ -223,45 +305,3 @@ track_plot <- track_plot + geom_point(shape = 1,size = 8,colour = "black")
 #track_plot <- track_plot+ geom_point() +geom_text(data=gr_sample, aes(x=long, y = lat,label=d_labels),size=4,hjust=0, vjust=v_jitter)
 track_plot <- track_plot + facet_grid(. ~ msisdn ) + ggtitle(paste0("Series # ",i))
 track_plot
-
-
-install.packages ("geosphere")
-require ("geosphere")
-
-
-
-cid_1 <- c('7743','11362')
-cid_1 <- c('7736','550')
-cid_2 <- c('7742','10379')
-
-pp <- data$lac == cid_1[1] & data$cid == cid_1[2]
-point1 <- data[pp, c('long','lat','max_dist','start_angle','end_angle')][1,]
-
-pp <- data$lac == cid_2[1] & data$cid == cid_2[2]
-point2 <- data[pp,c('long','lat','max_dist','start_angle','end_angle')][1,]
-
-
-p1_all_coord <- get_triangle_area (point1)
-p2_all_coord <- get_triangle_area (point2)
-
-p1_all_coord[2,1] <- p1_all_coord[2,1] - 0.001
-p1_all_coord[2,2] <- p1_all_coord[2,2] + 0.001
-
-
-# looking for points of intersection between two stations
-p_inter1 <- get_all_edges_intersect (p1_all_coord, p2_all_coord)
-p_inter2 <- get_all_inner_intersec (point1,point2, p1_all_coord, p2_all_coord)
-p_inter <- bind_rows (p_inter1, p_inter2)  
-
-
-p_all_coord <- bind_rows(p1_all_coord,p2_all_coord)
-
-track_plot <- ggplot()  + geom_point(data= p_all_coord,alpha=0.2,aes(x= lon, y=lat,color=row.names(p_all_coord)), size=8)
-track_plot
-track_plot + geom_point(data = p_inter, aes(x = lon, y= lat),  size=8)
-
-
-p1_all_coord[1,]
-p1_all_coord[2,]
-p2_all_coord[1,]
-p2_all_coord[2,]
