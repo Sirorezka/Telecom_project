@@ -82,6 +82,12 @@ for (i in 1:nrow(data_fact)){
 data_fact <- data_fact[order(data_fact [,1]),]
 
 
+#removing rows which aren't present in data table
+del_rows <- data_fact$X1 %in% unique(data$msisdn)
+data_fact <- data_fact[del_rows,]
+del_rows <- data_fact$X2 %in% unique(data$msisdn)
+data_fact <- data_fact[del_rows,]
+
 
 ####
 ####  --- Preparing data table ----
@@ -163,6 +169,7 @@ if (MAKE_PLOTS) plot_all_y_train (y_train, data)
 ###    Generating factors
 ###
 
+
 all_factors <- y_train[,c('V1','V2')]
 
 
@@ -175,7 +182,6 @@ names(all_factors)[3:4] <- c('cids_V1','cids_V2')
 
 
 # computing SymmetricSimilarity
-all_factors$cids_V1
 all_factors <- all_factors %>% group_by(V1,V2) %>% 
     mutate(ss =length(intersect(cids_V1[[1]],cids_V2[[1]]))/ length(unique(cids_V1[[1]],cids_V2[[1]])))
 
@@ -190,18 +196,135 @@ all_factors <- all_factors %>% group_by(V1,V2) %>%
   mutate(s3 =length(intersect(cids_V1[[1]],cids_V2[[1]]))/ ( ( length(cids_V1[[1]]) +length(cids_V2[[1]]))/2 ))
 
 
+# phones full name match and phone type match for pairs of msisdn's
+phones <- unique(data[,c('msisdn','device_vendor','device_platform','device_type')])
+phones$device_type [phones$device_type =="Phone"] = "SmartPhone"
+phones <- phones %>% mutate(phone_full = paste0(device_vendor,"_",device_platform,"_",device_type))
+phones <- phones[phones$device_type!=-1,]
+
+
+phone_type <- unique(phones[,c('msisdn','device_type')])
+phone_type$unit <- 1
+phone_type <- phone_type %>% group_by(msisdn) %>% spread(key=device_type, value = unit, fill = 0)  
+
+devices <- t(summarise_each (phone_type[,2:6],funs(sum)))
+devices <- as.data.frame(devices)
+
+if (MAKE_PLOTS)  {
+  # ploting devices by number of occurences in data
+  dev_plot <- ggplot(data=devices, aes(x=rownames(devices), y=V1))
+  dev_plot <- dev_plot + geom_bar(stat="summary", fun.y=sum, aes(fill =rownames(devices)))
+  dev_plot
+}
+
+
+phones <- phones[,c('msisdn','phone_full')]
+phones <- phones %>% group_by(msisdn) %>% summarise(phone_lst = list(phone_full))
+phones <- phones %>% left_join (phone_type, by = c('msisdn'))
+
+
+all_factors <- all_factors %>% left_join (phones, by = c('V1' = 'msisdn'), copy= T, fill = 0)
+all_factors <- all_factors %>% left_join (phones, by = c('V2' = 'msisdn'), copy= T, fill = 0)
+names(all_factors)
+
+
+col_del <- c(NULL) 
+for (i in rownames(devices)){
+  all_factors[is.na(all_factors[,paste0(i,".y")]),paste0(i,".y")] <-0
+  all_factors[is.na(all_factors[,paste0(i,".x")]),paste0(i,".x")] <-0
+  
+  all_factors[,i] <- all_factors[,paste0(i,".x")] + all_factors[,paste0(i,".y")]
+  col_del <- c(col_del,paste0(i,".x"),paste0(i,".y"))  
+}
+
+all_factors <- all_factors [,!(names(all_factors) %in% col_del)]
+
+# full phone name match
+all_factors <- all_factors %>% group_by(V1,V2) %>% 
+  mutate(phone_matched =min(length(unlist(phone_lst.x)),length(unlist(phone_lst.y)),length(intersect(phone_lst.x,phone_lst.y))))
+
+
+# phones vendor match
+
+phone_vendor <- unique(data[,c('msisdn','device_vendor')])
+phone_vendor <- phone_vendor[phone_vendor$device_vendor!=-1,]
+phone_vendor <- phone_vendor %>% group_by(msisdn) %>% summarise(vend_lst = list(device_vendor))
+  
+all_factors <- all_factors %>% left_join (phone_vendor, by = c('V1' = 'msisdn'), copy= T, fill = 0)
+all_factors <- all_factors %>% left_join (phone_vendor, by = c('V2' = 'msisdn'), copy= T, fill = 0)
+all_factors <- all_factors %>% group_by(V1,V2) %>% 
+  mutate(vendor_matched =min(length(unlist(vend_lst.x)),length(unlist(vend_lst.y)),length(intersect(vend_lst.x,vend_lst.y))))
+
+
+all_factors <- all_factors [,!(names(all_factors) %in% c('vend_lst.x','vend_lst.y'))]
+
+
+
+# ploting station usage - number of unique msisdn's registered in each cid
+if (MAKE_PLOTS)  plot_cids_distrib(data,img_path = "ppt_plots")
+
+
+##  Computing L1 and L2 distances between points 
+##  
+
+
+mm <- detectCores()
+cl <- makeCluster (mm)
+registerDoParallel (cl)
+
+
+tb_res_dist <- foreach (i = 1:nrow(y_train), .combine =rbind ) %dopar%{
+  print (i)
+  require ("geosphere")
+  v1 <- y_train[i,1][[1]]
+  v2 <- y_train[i,2][[1]]
+  path1 <- data [data$msisdn==v1,c('tstamp','long','lat')]
+  path2 <- data [data$msisdn==v2,c('tstamp','long','lat')]
+  
+  tt <- cbind(path1[1:(nrow(path1)-1),],path1[2:nrow(path1),])
+  tt$sq <- distCosine (tt[,2:3],tt[,5:6])
+  l2_dist1 <- sqrt(sum(tt$sq[tt$sq!=0]^2)/nrow(tt))
+  l1_dist1 <- sum(abs(tt$sq[tt$sq!=0]))/nrow(tt)
+
+  path1 <- rbind(path1,path2)
+  path1 <- path1[order(path1$tstamp),]
+  
+  tt <- cbind(path1[1:(nrow(path1)-1),],path1[2:nrow(path1),])
+  tt$sq <- distCosine (tt[,2:3],tt[,5:6])
+  l2_dist2 <- sqrt(sum(tt$sq[tt$sq!=0]^2)/nrow(tt))
+  l1_dist2 <- sum(abs(tt$sq[tt$sq!=0]))/nrow(tt)
+  
+  tb_dist <- c(i, l2_dist1,l2_dist2,l1_dist1,l1_dist2)
+  tb_dist
+}
+
+stopCluster(cl)
+
+tb_res_dist <- as.data.frame(tb_res_dist)
+tb_res_dist <- tb_res_dist[order(tb_res_dist$V1),]
+all_factors[,'l2_dist_diff_1'] <- (tb_res_dist$V3 - tb_res_dist$V2)
+all_factors[,'l1_dist_diff_1'] <- (tb_res_dist$V5 - tb_res_dist$V4)
+all_factors[,'l2_dist_diff_2'] <- abs(tb_res_dist$V3 - tb_res_dist$V2)
+all_factors[,'l1_dist_diff_2'] <- abs(tb_res_dist$V5 - tb_res_dist$V4)
+
+rm(tb_res_dist)
+
+
+
+###
+###    Saving factor data in file for future use
+###
 
 
 write.table(y_train, "pr_data/y_train.csv", sep=",")
 
-fact_short <- all_factors [,!(colnames(all_factors) %in% c("cids_V1","cids_V2"))]
-write.table(y_train, "pr_data/y_train.csv", sep=",")
+fact_short <- all_factors [,!(colnames(all_factors) %in% c("cids_V1","cids_V2","phone_lst.x","phone_lst.y"))]
 write.table(fact_short, "pr_data/factors.csv", sep=",")
 
 
 y_pred <- read.csv2 ("pr_data/y_pred.csv", header= FALSE, quote = '"', colClasses= c('numeric'))
 not_matched <- y_train[y_train[,'class'] != y_pred,]
-
+not_matched$pred <- y_pred[y_train[,'class'] != y_pred]
 
 nrow(not_matched)
 if (MAKE_PLOTS) plot_all_y_train (not_matched, data, img_path="non_matched")
@@ -285,8 +408,10 @@ track_plot + geom_point(data = p_inter, aes(x = lon, y= lat),  size=8)
 
 
 
+y_train [y_train$V1 == "158521282171",][1,]
 
-i <- 11
+i <- 3
+gr1 <- y_train[i,]  # msisdns that will be plotted
 gr1 <- not_matched[i,]  # msisdns that will be plotted
 gr_sample <- data[data[,'msisdn'] %in% gr1,c("msisdn","imei","tstamp","long","lat","start_angle","end_angle")]
 gr_sample <- data[data[,'msisdn'] %in% gr1,]
@@ -304,4 +429,17 @@ track_plot <- ggplot(gr_sample, aes(x= long, y=lat)) + geom_point(alpha=0.2, aes
 track_plot <- track_plot + geom_point(shape = 1,size = 8,colour = "black")
 #track_plot <- track_plot+ geom_point() +geom_text(data=gr_sample, aes(x=long, y = lat,label=d_labels),size=4,hjust=0, vjust=v_jitter)
 track_plot <- track_plot + facet_grid(. ~ msisdn ) + ggtitle(paste0("Series # ",i))
+track_plot
+
+
+data_reg <- unique(data [,c("lac","cid","long","lat")])
+data_reg$msisdn <- "null"
+data_reg$device_type <- "null"
+class(data_reg)
+data_reg <- bind_rows(data_reg,gr_sample[,c("lac","cid","long","lat","msisdn","device_type")])
+
+track_plot <- ggplot(data_reg, aes(x= long, y=lat)) + geom_point(alpha=0.2, aes(color=msisdn ),size=8)
+#track_plot <- track_plot + geom_point(shape = 1,size = 8,colour = "black")
+#track_plot <- track_plot+ geom_point() +geom_text(data=gr_sample, aes(x=long, y = lat,label=d_labels),size=4,hjust=0, vjust=v_jitter)
+#track_plot <- track_plot + facet_grid(. ~ msisdn ) + ggtitle(paste0("Series # ",i))
 track_plot

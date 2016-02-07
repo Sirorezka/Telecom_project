@@ -87,6 +87,27 @@ plot_all_fact_data <- function (data_fact, data, img_path ='plots_imei'){
 
 
 
+plot_cids_distrib <- function (data, img_path = "ppt_plots"){
+ 
+  tb_cids_usage <- unique(data [,c('lac','cid','msisdn','long','lat')])
+  class(tb_cids_usage$lac) <- 'string'
+  tb_cids_usage <- tb_cids_usage %>% group_by(lac,cid,long,lat) %>% summarize(usage = length(msisdn))
+  
+  all_cids_plot <- ggplot(data=tb_cids_usage, aes(x=long, y=lat)) + geom_point(alpha=0.1,aes(color=usage), size=2)
+  all_cids_plot
+  ggsave("Cids_heat_map.jpg", plot = all_cids_plot, path = img_path, width = 10, height = 7,  dpi = 300)
+  
+  
+  dev_plot <- ggplot(data=tb_cids_usage, aes(usage))
+  dev_plot <- dev_plot + geom_histogram(binwidth = 1) + xlim(0, 25)
+  dev_plot <- dev_plot + xlab("unique msisdn's registered") + ylab("number of cids") 
+  dev_plot
+  ggsave("Cids_histogram.jpg", plot = dev_plot, path = img_path, width = 10, height = 7,  dpi = 300)
+  
+  head(tb_cids_usage)
+  
+}
+
 ##
 ##  Function takes point as an input and builds 3x2 matrix with 'lon' and 'lat' 
 ##
