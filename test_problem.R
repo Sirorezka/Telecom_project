@@ -31,8 +31,8 @@ MAKE_PLOTS = F
 ####  --- Reading data sets  ----
 ####
 
-mywd <- "C:/Users/Johnny/Documents/GitHub/test_task"
-#mywd <- "C:/Users/Ivan.Petrov/Documents/GitHub/test_task"
+#mywd <- "C:/Users/Johnny/Documents/GitHub/test_task"
+mywd <- "C:/Users/Ivan.Petrov/Documents/GitHub/test_task"
 setwd (mywd)
 getwd()
 data_fact <- read.xlsx ("data/01_facts.xlsx", sheetIndex=1, header= FALSE) 
@@ -69,7 +69,7 @@ as.character(data_fact[data_fact[,1]==158528850493,2])
 rm(c1,c2)
 
 
-# switching elements where in first column elem is greater than in second
+# switching elements where id in first column is greater than id in second
 # and ordering elements
 for (i in 1:nrow(data_fact)){
   if (data_fact[i,1]>data_fact[i,2]){
@@ -90,7 +90,7 @@ data_fact <- data_fact[del_rows,]
 
 
 ####
-####  --- Preparing data table ----
+####  --- Preprocessing data table ----
 ####
 
 
@@ -123,7 +123,7 @@ data$end_angle <- as.numeric.factor(data$end_angle)
 #cbind(z[1], all_msisdn[all_msisdn>z[1]])
 
 ####
-####  --- Plotting paths ----
+####  --- Plotting paths ---
 ####
 
 
@@ -134,9 +134,9 @@ if (MAKE_PLOTS) plot_all_fact_data (data_fact, data)
 
 
 
-##
-##  Generating train set
-##
+####
+####  --- Generating train set ---
+####
 
 all_fact_ids <- c(data_fact[,1],data_fact[,2])
 data_train <- data[data[,'msisdn'] %in% all_fact_ids,]
@@ -150,6 +150,7 @@ aa <- paste0(y_train[,"V1"],"_",y_train[,"V2"], collapse = NULL)
 bb <- paste0(data_fact[,1],"_",data_fact[,2], collapse = NULL)
 class1 <- aa %in% bb
 y_train[class1,"class"] <- 1
+
 
 ## we need to take all pairs from class 1 and make sample for class zero
 y_train_1 <- y_train[y_train$class==1,]
@@ -311,6 +312,117 @@ rm(tb_res_dist)
 
 
 
+
+## 
+##  --- adjusting short pathes ---
+##
+##  Descr: First select all 'msidns' which visited less or equal than 3 base stations.
+##         Then for each of this stations we search for stations that have cross signals
+##         with stations visited by this 'msidns'. We will call this new stations - possible locations.
+##         We add later stations to the path list
+##
+
+
+CONST_SHORT_PATH_VAL <- 3
+
+data_adj <- data
+all_train_ids <- unique(c (y_train$V1,y_train$V2))
+all_train_ids <- as.data.frame(all_train_ids)
+names(all_train_ids) <- 'msisdn'
+
+## unique points
+
+
+tb_path_length <-data_adj %>% group_by (msisdn) %>% summarize(lac_unique = list(paste0(long,"_",lat)))
+tb_path_length <- tb_path_length %>% group_by (msisdn) %>% summarize (lac_unique = list(unique(lac_unique[[1]])))
+tb_path_length <- tb_path_length %>% group_by (msisdn) %>% summarize (lac_unique = length(lac_unique[[1]]))
+
+
+
+all_train_ids <- all_train_ids %>% left_join(tb_path_length, by = c('msisdn' = 'msisdn'))
+short_pathes <- all_train_ids[all_train_ids$lac_unique <= CONST_SHORT_PATH_VAL,]
+
+satation_list <- unique(data[,c('lac','cid','long','lat','max_dist','start_angle','end_angle')])
+
+
+for (i in 5:nrow(short_pathes)){
+  ## go through all 'msidns' that visited less than three stations
+  
+  print(i)
+  curr_msid <- short_pathes[i,1]
+  cur_stations <- data_adj[data_adj$msisdn == curr_msid,]
+  for (j in 1:nrow(cur_stations)){
+    ## for each visited stations check all nearest stations - stations of possible visit
+    
+    print (j)
+    lac_intersect <- data.frame(NULL)
+    cur_station <- cur_stations[j,c('lac','cid','long','lat','max_dist','start_angle','end_angle')]
+    temp_st_list <- satation_list[,]
+    
+    # removing stations that are too far from current
+    temp_st_list$V1 <- cur_station$long
+    temp_st_list$V2 <- cur_station$lat
+    temp_st_list$dist <- sqrt((temp_st_list$long-temp_st_list$V1)**2 + (temp_st_list$lat-temp_st_list$V2)**2)
+    
+    # estimated filter for distance, '1' - is the unit dist in lat/long coordinates
+    # 111000 is the apx. number of meters in a unit of dist in lat/long coordinates
+    # 1000 - aprx. average max.distance for all stations
+    # cur_station$max_dist was added to the formula, because some stations have max.dist equal to 15 km.
+    
+    #filt <- 0.1
+    #filt <- 1 / 111000 * max (1000 *2, cur_station$max_dist+1000)
+    filt <- 1 / 111000 * (cur_station$max_dist+1000)
+      
+    temp_st_list <- temp_st_list[temp_st_list$dist < filt,]
+    temp_st_list <- temp_st_list[temp_st_list$dist > 1e-5,]
+    
+    if (nrow(temp_st_list)>0) {
+        for (k in 1:nrow(temp_st_list)){
+          print(k)
+    
+          point1 <- cur_station
+          point2 <- temp_st_list[k,]
+          
+          p1_all_coord <- get_triangle_area (point1)
+          p2_all_coord <- get_triangle_area (point2)
+          
+    
+          # looking for points of intersection between two stations
+          p_inter1 <- get_all_edges_intersect (p1_all_coord, p2_all_coord)
+          # print(p_inter1)
+          # tt <- plot_triangle (point1,point2)
+          # tt
+          
+          p_inter2 <- get_all_inner_intersec (point1,point2, p1_all_coord, p2_all_coord)
+          # print (p_inter2)
+          p_inter <- unique(bind_rows (p_inter1, p_inter2))
+    
+          
+          df <- as.data.frame(c(point2,k))
+          colnames(df)[11] <- "k_val"
+      
+          if (nrow(p_inter)>0)  lac_intersect <- bind_rows(lac_intersect,df)
+        }
+    }
+    
+    break
+  }
+  break
+}
+
+
+plot_triangle_and_intersect(point1,lac_intersect)
+
+
+lac_intersect
+p1 <- c(0,0)
+p2 <- c(0,1)
+distCosine(p1,p2)/111000*800 
+
+tt <- plot_triangle (point1,point2)
+tt
+
+
 ###
 ###    Saving factor data in file for future use
 ###
@@ -328,6 +440,7 @@ not_matched$pred <- y_pred[y_train[,'class'] != y_pred]
 
 nrow(not_matched)
 if (MAKE_PLOTS) plot_all_y_train (not_matched, data, img_path="non_matched")
+
 
 
 
