@@ -345,16 +345,16 @@ short_pathes <- all_train_ids[all_train_ids$lac_unique <= CONST_SHORT_PATH_VAL,]
 satation_list <- unique(data[,c('lac','cid','long','lat','max_dist','start_angle','end_angle')])
 
 
-for (i in 5:nrow(short_pathes)){
+for (i in 1:nrow(short_pathes)){
   ## go through all 'msidns' that visited less than three stations
   
-  print(i)
+  #print(i)
   curr_msid <- short_pathes[i,1]
   cur_stations <- data_adj[data_adj$msisdn == curr_msid,]
   for (j in 1:nrow(cur_stations)){
     ## for each visited stations check all nearest stations - stations of possible visit
     
-    print (j)
+    #print (j)
     lac_intersect <- data.frame(NULL)
     cur_station <- cur_stations[j,c('lac','cid','long','lat','max_dist','start_angle','end_angle')]
     temp_st_list <- satation_list[,]
@@ -378,7 +378,7 @@ for (i in 5:nrow(short_pathes)){
     
     if (nrow(temp_st_list)>0) {
         for (k in 1:nrow(temp_st_list)){
-          print(k)
+          #print(k)
     
           point1 <- cur_station
           point2 <- temp_st_list[k,]
