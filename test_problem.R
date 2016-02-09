@@ -9,6 +9,9 @@ if (!require (caret)) install.packages ("caret")
 if (!require (geosphere)) install.packages ("geosphere")
 if (!require (doParallel)) install.packages ("doParallel")
 if (!require (foreach)) install.packages ("foreach")
+if (!require(randomForest)) install.packages('randomForest')
+if (!require(e1071)) install.packages('e1071')
+if (!require(caret)) install.packages('caret')
 
 
 require (xlsx)
@@ -21,6 +24,8 @@ require (caret)
 require (geosphere)
 require (doParallel)
 require (foreach)
+require(randomForest)
+require(caret)
 
 
 ##
@@ -189,6 +194,19 @@ if (MAKE_PLOTS) plot_all_y_train (y_train, data)
 
 
 
+####
+####  --- Generating test set ---
+####
+
+# all_msisdn <- unique(data$msisdn)
+# y_test <- generate_all_combin (all_msisdn)
+# y_test[,"class"] <- -1
+# 
+# y_train <- bind_rows (y_test,y_train)
+# max(y_train$class)
+
+
+
 
 ###
 ###  ---  Generating factors  ---
@@ -292,7 +310,7 @@ if (MAKE_PLOTS)  plot_cids_distrib(data,img_path = "ppt_plots")
 ##  Computing L1 and L2 distances between points 
 ##  
 
-
+ptm <- proc.time()
 mm <- detectCores()
 cl <- makeCluster (mm)
 registerDoParallel (cl)
@@ -325,6 +343,8 @@ tb_res_dist <- foreach (i = 1:nrow(y_train), .combine =rbind, .packages =c('geos
 }
 
 stopCluster(cl)
+
+print (proc.time()-ptm)
 
 tb_res_dist <- as.data.frame(tb_res_dist)
 tb_res_dist <- tb_res_dist[order(tb_res_dist$V1),]
@@ -421,12 +441,15 @@ nrow(data_adj)
 ###  Calculating new SS, S2, S3 measures for data_adj
 ###
 
+
+
 # tt will have all cids
 tt <- data_adj[,c('msisdn','cid')] %>% group_by(msisdn) %>% summarise(cids_adj = list(unique(cid)))
 
 all_factors <- all_factors %>% left_join (tt, by = c('V1' = 'msisdn'), copy= T)
 all_factors <- all_factors %>% left_join (tt, by = c('V2' = 'msisdn'), copy= T)
 
+names(all_factors)[21:22] <- c("cids_adj_V1_old", "cids_adj_V2_old")
 colnames(all_factors)[(ncol(all_factors)-1):ncol(all_factors)] <- c('cids_adj_V1','cids_adj_V2')
 
 
@@ -456,7 +479,7 @@ all_factors <- all_factors %>% group_by(V1,V2) %>%
 
 write.table(y_train, "pr_data/y_train.csv", sep=",")
 
-fact_short <- all_factors [,!(colnames(all_factors) %in% c("cids_V1","cids_V2","phone_lst.x","phone_lst.y","cids_adj_V1","cids_adj_V2"))]
+fact_short <- all_factors [,!(colnames(all_factors) %in% c("cids_V1","cids_V2","phone_lst.x","phone_lst.y","cids_adj_V1","cids_adj_V2","cids_adj_V1_old","cids_adj_V2_old"))]
 write.table(fact_short, "pr_data/factors.csv", sep=",")
 
 
@@ -468,11 +491,42 @@ nrow(not_matched)
 if (MAKE_PLOTS) plot_all_y_train (not_matched, data, img_path="non_matched")
 
 
-fact_short
+
+
+###
+###   --- Building model --- 
+###
 
 
 
 
+all_factors <- read.table("pr_data/factors.csv", sep=",")
+y_train <- read.table("pr_data/y_train.csv", sep=",")
+
+
+y_train$class <- as.factor(y_train$class)
+clf <- randomForest(all_factors,y_train$class,ntree=150,maxnodes=20)
+round(importance(clf), 2)
+
+y_pred <- predict(clf, all_factors, type="response")
+
+confusionMatrix(y_pred, y_train$class )
+
+
+     
+
+randomForest(x, y=NULL, xtest=NULL, ytest=NULL, ntree=500,
+             mtry=if (!is.null(y) && !is.factor(y))
+               max(floor(ncol(x)/3), 1) else floor(sqrt(ncol(x))),
+             replace=TRUE, classwt=NULL, cutoff, strata,
+             sampsize = if (replace) nrow(x) else ceiling(.632*nrow(x)),
+             nodesize = if (!is.null(y) && !is.factor(y)) 5 else 1,
+             maxnodes = NULL,
+             importance=FALSE, localImp=FALSE, nPerm=1,
+             proximity, oob.prox=proximity,
+             norm.votes=TRUE, do.trace=FALSE,
+             keep.forest=!is.null(y) && is.null(xtest), corr.bias=FALSE,
+             keep.inbag=FALSE, ...)
 
 
 
