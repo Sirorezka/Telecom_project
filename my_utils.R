@@ -212,7 +212,9 @@ get_all_edges_intersect <- function (p1_all_coord, p2_all_coord){
   {
     for (j in all_comb){
       
-      #i <- c(1,2)
+      #print (paste0("i: ",i[1],i[2]))
+      #print (paste0("j: ",j[1],j[2]))
+      #i <- c(2,3)
       #j <- c(1,2)
 
       p1 <- p1_all_coord[i[1],]
@@ -220,30 +222,30 @@ get_all_edges_intersect <- function (p1_all_coord, p2_all_coord){
       p3 <- p2_all_coord[j[1],]
       p4 <- p2_all_coord[j[2],]
       points <- gcIntersect(p1, p2, p3, p4)
-      
-      if (is.nan(points[1])) points <- c(0,0,0,0)
-      k = 0
-      x_inter = F
-      
-      if ( (points[1]-p1[1])*(points[1]-p2[1]) <= 1e-6) k=k+1
-      if ( (points[2]-p1[2])*(points[2]-p2[2]) <= 1e-6) k=k+1
-      if ( (points[1]-p3[1])*(points[1]-p4[1]) <= 1e-6) k=k+1
-      if ( (points[2]-p3[2])*(points[2]-p4[2]) <= 1e-6) k=k+1
-      
-      if (k==4) {x_inter = T
-      p_intesect <- bind_rows(p_intesect,data.frame(t(points[1:2])))
-      }
-      
-      k = 0
-      if ((points[3]-p1[1])*(points[3]-p2[1]) <= 1e-6)  k=k+1
-      if ((points[4]-p1[2])*(points[4]-p2[2]) <= 1e-6) k=k+1
-      if ((points[3]-p3[1])*(points[3]-p4[1]) <= 1e-6) k=k+1
-      if ((points[4]-p3[2])*(points[4]-p4[2]) <= 1e-6) k=k+1
-      
-      if (k==4) {x_inter = T
-      p_intesect <- bind_rows(p_intesect,data.frame(t(points[3:4])))
-      }
-      
+
+      if (!is.na(points[[1]])){
+          k = 0
+          x_inter = F
+          
+          if ( (points[1]-p1[1])*(points[1]-p2[1]) <= 1e-6) k=k+1
+          if ( (points[2]-p1[2])*(points[2]-p2[2]) <= 1e-6) k=k+1
+          if ( (points[1]-p3[1])*(points[1]-p4[1]) <= 1e-6) k=k+1
+          if ( (points[2]-p3[2])*(points[2]-p4[2]) <= 1e-6) k=k+1
+          
+          if (k==4) {x_inter = T
+                     p_intesect <- bind_rows(p_intesect,data.frame(t(points[1:2])))
+                    }
+          
+          k = 0
+          if ((points[3]-p1[1])*(points[3]-p2[1]) <= 1e-6)  k=k+1
+          if ((points[4]-p1[2])*(points[4]-p2[2]) <= 1e-6) k=k+1
+          if ((points[3]-p3[1])*(points[3]-p4[1]) <= 1e-6) k=k+1
+          if ((points[4]-p3[2])*(points[4]-p4[2]) <= 1e-6) k=k+1
+          
+          if (k==4) {x_inter = T
+                     p_intesect <- bind_rows(p_intesect,data.frame(t(points[3:4])))
+                    }
+          }
       #print (i)
       #print (j)
       #print(p_intesect)

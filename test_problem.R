@@ -23,18 +23,25 @@ require (doParallel)
 require (foreach)
 
 
-source ('my_utils.R')
+##
+##  --- Setting working directory
+##
 
 MAKE_PLOTS = F
+#mywd <- "C:/Users/Johnny/Documents/GitHub/test_task"
+mywd <- "C:/Users/Ivan.Petrov/Documents/GitHub/test_task"
+setwd (mywd)
+getwd()
+source ('my_utils.R')
+
+
+
 
 ####
 ####  --- Reading data sets  ----
 ####
 
-#mywd <- "C:/Users/Johnny/Documents/GitHub/test_task"
-mywd <- "C:/Users/Ivan.Petrov/Documents/GitHub/test_task"
-setwd (mywd)
-getwd()
+
 data_fact <- read.xlsx ("data/01_facts.xlsx", sheetIndex=1, header= FALSE) 
 data <- read.csv2 ("data/02_Data_test.csv", header= TRUE) 
 data_tac <- read.csv2 ("data/03_devices.csv", header= FALSE, quote = '"') 
@@ -106,12 +113,14 @@ data[,'tstamp'] <- c1
 all_msisdn <- unique(data[,'msisdn'])
 all_msisdn <- all_msisdn[order(all_msisdn)]
 
+
 # joining tac
 data[,'tac'] <- substr(data[,'imei'],1,8)
 data <- data %>% left_join (data_tac, by=("tac"))
 data[is.na(data$device_type),"device_type"] = -1
 data[is.na(data$device_platform),"device_platform"] = -1
 data[is.na(data$device_vendor),"device_vendor"] = -1
+
 
 # converting long, lat, start_angle, end_angle to numeric
 data$long <- as.numeric.factor(data$long)
@@ -120,12 +129,18 @@ data$start_angle <- as.numeric.factor(data$start_angle)
 data$end_angle <- as.numeric.factor(data$end_angle)
 
 
-#cbind(z[1], all_msisdn[all_msisdn>z[1]])
+# we need to check if cid is unique and can be used as key for base station:
+tb_cid_check <- unique(data[,c('lac','cid')])
+tb_cid_check <- tb_cid_check %>% group_by(cid) %>% summarize (mm=length(list(lac)))
+if (max(tb_cid_check$mm) == 1) print ("All cids are unique")
+
+
+
+
 
 ####
 ####  --- Plotting paths ---
 ####
-
 
 
 # plot all paths on one graph with imei codes. We are searching for data with matching imei codes
@@ -274,29 +289,29 @@ cl <- makeCluster (mm)
 registerDoParallel (cl)
 
 
-tb_res_dist <- foreach (i = 1:nrow(y_train), .combine =rbind ) %dopar%{
-  print (i)
-  require ("geosphere")
-  v1 <- y_train[i,1][[1]]
-  v2 <- y_train[i,2][[1]]
-  path1 <- data [data$msisdn==v1,c('tstamp','long','lat')]
-  path2 <- data [data$msisdn==v2,c('tstamp','long','lat')]
+tb_res_dist <- foreach (i = 1:nrow(y_train), .combine =rbind, .packages =c('geosphere') ) %dopar%{
+    print (i)
+    ## require ("geosphere")
+    v1 <- y_train[i,1][[1]]
+    v2 <- y_train[i,2][[1]]
+    path1 <- data [data$msisdn==v1,c('tstamp','long','lat')]
+    path2 <- data [data$msisdn==v2,c('tstamp','long','lat')]
+    
+    tt <- cbind(path1[1:(nrow(path1)-1),],path1[2:nrow(path1),])
+    tt$sq <- distCosine (tt[,2:3],tt[,5:6])
+    l2_dist1 <- sqrt(sum(tt$sq[tt$sq!=0]^2)/nrow(tt))
+    l1_dist1 <- sum(abs(tt$sq[tt$sq!=0]))/nrow(tt)
   
-  tt <- cbind(path1[1:(nrow(path1)-1),],path1[2:nrow(path1),])
-  tt$sq <- distCosine (tt[,2:3],tt[,5:6])
-  l2_dist1 <- sqrt(sum(tt$sq[tt$sq!=0]^2)/nrow(tt))
-  l1_dist1 <- sum(abs(tt$sq[tt$sq!=0]))/nrow(tt)
-
-  path1 <- rbind(path1,path2)
-  path1 <- path1[order(path1$tstamp),]
-  
-  tt <- cbind(path1[1:(nrow(path1)-1),],path1[2:nrow(path1),])
-  tt$sq <- distCosine (tt[,2:3],tt[,5:6])
-  l2_dist2 <- sqrt(sum(tt$sq[tt$sq!=0]^2)/nrow(tt))
-  l1_dist2 <- sum(abs(tt$sq[tt$sq!=0]))/nrow(tt)
-  
-  tb_dist <- c(i, l2_dist1,l2_dist2,l1_dist1,l1_dist2)
-  tb_dist
+    path1 <- rbind(path1,path2)
+    path1 <- path1[order(path1$tstamp),]
+    
+    tt <- cbind(path1[1:(nrow(path1)-1),],path1[2:nrow(path1),])
+    tt$sq <- distCosine (tt[,2:3],tt[,5:6])
+    l2_dist2 <- sqrt(sum(tt$sq[tt$sq!=0]^2)/nrow(tt))
+    l1_dist2 <- sum(abs(tt$sq[tt$sq!=0]))/nrow(tt)
+    
+    tb_dist <- c(i, l2_dist1,l2_dist2,l1_dist1,l1_dist2)
+    tb_dist
 }
 
 stopCluster(cl)
@@ -314,7 +329,7 @@ rm(tb_res_dist)
 
 
 ## 
-##  --- adjusting short pathes ---
+##  --- adding data points to short pathes ---
 ##
 ##  Descr: First select all 'msidns' which visited less or equal than 3 base stations.
 ##         Then for each of this stations we search for stations that have cross signals
@@ -345,16 +360,27 @@ short_pathes <- all_train_ids[all_train_ids$lac_unique <= CONST_SHORT_PATH_VAL,]
 satation_list <- unique(data[,c('lac','cid','long','lat','max_dist','start_angle','end_angle')])
 
 
-for (i in 1:nrow(short_pathes)){
-  ## go through all 'msidns' that visited less than three stations
+
+mm <- detectCores()
+cl <- makeCluster (mm)
+registerDoParallel (cl)
+
+
+tb_data_adj_new <- foreach (i = 1:nrow(short_pathes), .combine =rbind, .packages=c('geosphere','dplyr','tidyr')) %dopar%{
+#for (i in 1:nrow(short_pathes)){
+
+  ## interate over all 'msidns' that have less than three stations
   
-  #print(i)
+  #print (paste0("i: ", i))
   curr_msid <- short_pathes[i,1]
   cur_stations <- data_adj[data_adj$msisdn == curr_msid,]
+  lac_intersect_full <- data.frame(NULL)
+  
+  
   for (j in 1:nrow(cur_stations)){
     ## for each visited stations check all nearest stations - stations of possible visit
     
-    #print (j)
+    #print (paste0("j: ",j))
     lac_intersect <- data.frame(NULL)
     cur_station <- cur_stations[j,c('lac','cid','long','lat','max_dist','start_angle','end_angle')]
     temp_st_list <- satation_list[,]
@@ -376,9 +402,11 @@ for (i in 1:nrow(short_pathes)){
     temp_st_list <- temp_st_list[temp_st_list$dist < filt,]
     temp_st_list <- temp_st_list[temp_st_list$dist > 1e-5,]
     
+    
     if (nrow(temp_st_list)>0) {
         for (k in 1:nrow(temp_st_list)){
-          #print(k)
+          
+          # print(k)
     
           point1 <- cur_station
           point2 <- temp_st_list[k,]
@@ -402,25 +430,68 @@ for (i in 1:nrow(short_pathes)){
           colnames(df)[11] <- "k_val"
       
           if (nrow(p_inter)>0)  lac_intersect <- bind_rows(lac_intersect,df)
+          
         }
-    }
+      }
+      
     
-    break
+      # we need to add all necessary columns to lac_intersect data to bind rows in data_adj later
+      if (nrow(lac_intersect)>0) {
+          cur_station <- cur_stations[j,]
+          new_cols <- !(names(cur_station) %in% names(lac_intersect))
+          new_clos <- names(cur_station)[new_cols]
+          
+          for (t in new_clos){
+            lac_intersect[,t] = cur_stations[j,t]
+            }
+        
+          # rearranging columns
+          lac_intersect <- lac_intersect [,names(cur_station)]
+          lac_intersect_full <- bind_rows(lac_intersect_full, lac_intersect)
+      }
+    
   }
-  break
+  
+  lac_intersect_full
 }
 
 
-plot_triangle_and_intersect(point1,lac_intersect)
+stopCluster(cl)
+
+nrow(data_adj)
+data_adj <- bind_rows(data_adj, tb_data_adj_new)
+nrow(data_adj)
 
 
-lac_intersect
-p1 <- c(0,0)
-p2 <- c(0,1)
-distCosine(p1,p2)/111000*800 
 
-tt <- plot_triangle (point1,point2)
-tt
+###
+###  Calculating new SS, S2, S3 measures for data_adj
+###
+
+# tt will have all cids
+tt <- data_adj[,c('msisdn','cid')] %>% group_by(msisdn) %>% summarise(cids_adj = list(unique(cid)))
+
+all_factors <- all_factors %>% left_join (tt, by = c('V1' = 'msisdn'), copy= T)
+all_factors <- all_factors %>% left_join (tt, by = c('V2' = 'msisdn'), copy= T)
+
+colnames(all_factors)[(ncol(all_factors)-1):ncol(all_factors)] <- c('cids_adj_V1','cids_adj_V2')
+
+
+
+# computing SymmetricSimilarity
+all_factors <- all_factors %>% group_by(V1,V2) %>% 
+  mutate(ss_adj =length(intersect(cids_adj_V1[[1]],cids_adj_V2[[1]]))/ length(unique(cids_adj_V1[[1]],cids_adj_V2[[1]])))
+
+
+# computing S2
+all_factors <- all_factors %>% group_by(V1,V2) %>% 
+  mutate(s2_adj =length(intersect(cids_adj_V1[[1]],cids_adj_V2[[1]]))/ min(length(cids_adj_V1[[1]]),length(cids_adj_V2[[1]])))
+
+
+# computing S3
+all_factors <- all_factors %>% group_by(V1,V2) %>% 
+  mutate(s3_adj =length(intersect(cids_adj_V1[[1]],cids_adj_V2[[1]]))/ ((length(cids_adj_V1[[1]]) +length(cids_adj_V2[[1]]))/2 ))
+
 
 
 ###
@@ -430,7 +501,7 @@ tt
 
 write.table(y_train, "pr_data/y_train.csv", sep=",")
 
-fact_short <- all_factors [,!(colnames(all_factors) %in% c("cids_V1","cids_V2","phone_lst.x","phone_lst.y"))]
+fact_short <- all_factors [,!(colnames(all_factors) %in% c("cids_V1","cids_V2","phone_lst.x","phone_lst.y","cids_adj_V1","cids_adj_V2"))]
 write.table(fact_short, "pr_data/factors.csv", sep=",")
 
 
@@ -442,81 +513,19 @@ nrow(not_matched)
 if (MAKE_PLOTS) plot_all_y_train (not_matched, data, img_path="non_matched")
 
 
+fact_short
 
 
 
+
+
+
+
+
+
+###
+###   --- For tests --- 
 ###
-###  Processing lac areas - generating database with intersections
-###
-
-
-data_lac <- unique(data[, c('lac','cid','long','lat','max_dist','start_angle','end_angle')])
-
-
-# Plotting all lac points
-all_lac_plot <- ggplot(data=data_lac,aes(x=long, y=lat)) + geom_point(alpha=0.2,aes(color=lac), size=2)
-all_lac_plot
-ggsave ("all_cids.jpg", all_lac_plot, width = 10, height = 7)
-
-# Histogram for lac max distance
-hist(data_lac$max_dist, xlim = c(0,15000), breaks = 35)
-
-
-# generating matrix with intersections
-mm <- detectCores()
-cl <- makeCluster (mm)
-registerDoParallel (cl)
-
-res <- foreach (i = 1:4, .combine =rbind ) %dopar% {
-  
-  require ("geosphere")
-  require ("dplyr")
-  
-    
-  lac_intersect <- data.frame(NULL)
-  z <-  1: nrow(data_lac)
-  t <- as.data.frame(cbind(z[i], z[z>z[i]]))
-  
-  for (j in 1:nrow(t)){
-    
-    point1 <- data_lac[t[j,1],]
-    point2 <- data_lac[t[j,2],]
-    
-    p1_all_coord <- get_triangle_area (point1)
-    p2_all_coord <- get_triangle_area (point2)
-    
-    # looking for points of intersection between two stations
-    p_inter1 <- get_all_edges_intersect (p1_all_coord, p2_all_coord)
-    p_inter2 <- get_all_inner_intersec (point1,point2, p1_all_coord, p2_all_coord)
-    p_inter <- bind_rows (p_inter1, p_inter2)  
-    
-    df <- as.data.frame(t(c(data_lac$lac[t[j,1]],data_lac$lac[t[j,2]])))
-    if (nrow(p_inter)>0)  bind_rows(lac_intersect,df)
-    
-    
-  }
-  
-  return (lac_intersect)
-}
-
-stopCluster(cl)
-
-
-
-
-
-
-cid_1 <- c('7743','11362')
-cid_1 <- c('7736','550')
-cid_2 <- c('7742','10379')
-
-
-
-track_plot <- ggplot()  + geom_point(data= p_all_coord,alpha=0.2,aes(x= lon, y=lat,color=row.names(p_all_coord)), size=8)
-track_plot
-track_plot + geom_point(data = p_inter, aes(x = lon, y= lat),  size=8)
-
-
 
 
 

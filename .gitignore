@@ -16,8 +16,8 @@ $RECYCLE.BIN/
 
 # Windows shortcuts
 *.lnk
-*.csv
-*.xlsx
+data/*.csv
+data/*.xlsx
 *.docx
 
 # =========================
