@@ -1,10 +1,15 @@
 if (!require ("geosphere")) install.packages ("geosphere")
 require ("geosphere")
 
+###
+###  Function generate all possible (non-matching) combinations of two column with ids
+###
+###  - as an input function receives list of 'ids'. 
+###
 
 generate_all_combin <- function (ids){
   
-  z <- ids
+  z <- sort(ids)
   
   all_comb <- data.frame(c(NULL,NULL))
   for(i in 1:(length(z)-1)){
@@ -16,6 +21,12 @@ generate_all_combin <- function (ids){
   all_comb
 }
 
+
+
+
+###
+###  Converts factors to numeric
+###
 
 as.numeric.factor <- function(x) {as.numeric(levels(x))[x]}
 
@@ -350,3 +361,130 @@ get_all_inner_intersec <- function (point1,point2, p1_all_coord,p2_all_coord){
 }
 
 
+###
+###  --- Function computes nearest base station to the selected ids
+###
+###   data_adj - should have same structure as original data table
+###   all_train_ids - ids that we want to process         
+###   SHOR_PATH_VAL - filter for ids. Only ids with number of base stations equal or less than constant will be processed
+###
+
+
+get_all_nearest_stations <- function (data_adj, all_train_ids, SHOR_PATH_VAL){
+  
+  ## unique points
+  
+  tb_path_length <-data_adj %>% group_by (msisdn) %>% summarize(lac_unique = list(paste0(long,"_",lat)))
+  tb_path_length <- tb_path_length %>% group_by (msisdn) %>% summarize (lac_unique = list(unique(lac_unique[[1]])))
+  tb_path_length <- tb_path_length %>% group_by (msisdn) %>% summarize (lac_unique = length(lac_unique[[1]]))
+  
+  
+  
+  all_train_ids <- all_train_ids %>% left_join(tb_path_length, by = c('msisdn' = 'msisdn'))
+  short_pathes <- all_train_ids[all_train_ids$lac_unique <= SHOR_PATH_VAL,]
+  
+  satation_list <- unique(data[,c('lac','cid','long','lat','max_dist','start_angle','end_angle')])
+  
+  
+  ptm <- proc.time()
+  mm <- detectCores()
+  cl <- makeCluster (mm)
+  registerDoParallel (cl)
+  
+  tb_data_adj_new <- foreach (i = 1:nrow(short_pathes), .combine =rbind, .packages=c('geosphere','dplyr','tidyr')) %dopar%{
+    source ('my_utils.R')
+    #for (i in 1:nrow(short_pathes)){
+    
+    ## interate over all 'msidns' that have less than three stations
+    
+    #print (paste0("i: ", i))
+    curr_msid <- short_pathes[i,1]
+    cur_stations <- data_adj[data_adj$msisdn == curr_msid,]
+    lac_intersect_full <- data.frame(NULL)
+    
+    
+    for (j in 1:nrow(cur_stations)){
+      ## for each visited stations check all nearest stations - stations of possible visit
+      
+      #print (paste0("j: ",j))
+      lac_intersect <- data.frame(NULL)
+      cur_station <- cur_stations[j,c('lac','cid','long','lat','max_dist','start_angle','end_angle')]
+      temp_st_list <- satation_list[,]
+      
+      # removing stations that are too far from current
+      temp_st_list$V1 <- cur_station$long
+      temp_st_list$V2 <- cur_station$lat
+      temp_st_list$dist <- sqrt((temp_st_list$long-temp_st_list$V1)**2 + (temp_st_list$lat-temp_st_list$V2)**2)
+      
+      # estimated filter for distance, '1' - is the unit dist in lat/long coordinates
+      # 111000 is the apx. number of meters in a unit of dist in lat/long coordinates
+      # 1000 - aprx. average max.distance for all stations
+      # cur_station$max_dist was added to the formula, because some stations have max.dist equal to 15 km.
+      
+      #filt <- 0.1
+      #filt <- 1 / 111000 * max (1000 *2, cur_station$max_dist+1000)
+      filt <- 1 / 111000 * (cur_station$max_dist+1000)
+      
+      temp_st_list <- temp_st_list[temp_st_list$dist < filt,]
+      temp_st_list <- temp_st_list[temp_st_list$dist > 1e-5,]
+      
+      
+      if (nrow(temp_st_list)>0) {
+        for (k in 1:nrow(temp_st_list)){
+          
+          # print(k)
+          
+          point1 <- cur_station
+          point2 <- temp_st_list[k,]
+          
+          p1_all_coord <- get_triangle_area (point1)
+          p2_all_coord <- get_triangle_area (point2)
+          
+          
+          # looking for points of intersection between two stations
+          p_inter1 <- get_all_edges_intersect (p1_all_coord, p2_all_coord)
+          # print(p_inter1)
+          # tt <- plot_triangle (point1,point2)
+          # tt
+          
+          p_inter2 <- get_all_inner_intersec (point1,point2, p1_all_coord, p2_all_coord)
+          # print (p_inter2)
+          p_inter <- unique(bind_rows (p_inter1, p_inter2))
+          
+          
+          df <- as.data.frame(c(point2,k))
+          colnames(df)[11] <- "k_val"
+          
+          if (nrow(p_inter)>0)  lac_intersect <- bind_rows(lac_intersect,df)
+          
+        }
+      }
+      
+      
+      # we need to add all necessary columns to lac_intersect data to bind rows in data_adj later
+      if (nrow(lac_intersect)>0) {
+        cur_station <- cur_stations[j,]
+        new_cols <- !(names(cur_station) %in% names(lac_intersect))
+        new_clos <- names(cur_station)[new_cols]
+        
+        for (t in new_clos){
+          lac_intersect[,t] = cur_stations[j,t]
+        }
+        
+        # rearranging columns
+        lac_intersect <- lac_intersect [,names(cur_station)]
+        lac_intersect_full <- bind_rows(lac_intersect_full, lac_intersect)
+      }
+      
+    }
+    
+    lac_intersect_full
+  }
+  
+  stopCluster(cl)
+  
+  print ("time of execution: ")
+  print (proc.time() - ptm)
+  
+  tb_data_adj_new
+}
