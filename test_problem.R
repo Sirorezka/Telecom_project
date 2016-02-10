@@ -1,3 +1,5 @@
+#Sys.setenv(JAVA_HOME='C:\\Program Files\\Java\\jre1.8.0_73')  # for 64 bit Java
+if (!require (rJava)) install.packages ("rJava")
 if (!require (xlsx)) install.packages ("xlsx")
 if (!require (dplyr)) install.packages ("dplyr")
 if (!require (tidyr)) install.packages ("tidyr")
@@ -12,6 +14,7 @@ if (!require (foreach)) install.packages ("foreach")
 if (!require(randomForest)) install.packages('randomForest')
 if (!require(e1071)) install.packages('e1071')
 if (!require(caret)) install.packages('caret')
+if (!require(caret)) install.packages('pROC')
 
 
 require (xlsx)
@@ -26,7 +29,7 @@ require (doParallel)
 require (foreach)
 require(randomForest)
 require(caret)
-
+library(pROC)
 
 ##
 ##  --- Setting working directory
@@ -35,8 +38,9 @@ require(caret)
 MAKE_PLOTS = F
 
 
-mywd <- "C:/Users/Johnny/Documents/GitHub/test_task"
-#mywd <- "C:/Users/Ivan.Petrov/Documents/GitHub/test_task"
+# mywd <- "C:/Users/Administrator/Desktop/Telecom_project"
+# mywd <- "C:/Users/Johnny/Documents/GitHub/test_task"
+mywd <- "C:/Users/Ivan.Petrov/Documents/GitHub/test_task"
 setwd (mywd)
 getwd()
 source ('my_utils.R')
@@ -53,7 +57,7 @@ data_fact <- read.xlsx ("data/01_facts.xlsx", sheetIndex=1, header= FALSE)
 data <- read.csv2 ("data/02_Data_test.csv", header= TRUE) 
 data_tac <- read.csv2 ("data/03_devices.csv", header= FALSE, quote = '"') 
 
-
+nrow(unique(data [,c('lac','cid')]))
 
 ####
 ####  --- Processing tac table  ----
@@ -192,7 +196,7 @@ rm(y_train_0,y_train_1)
 
 if (MAKE_PLOTS) plot_all_y_train (y_train, data)
 
-
+length(unique(data$msisdn))
 
 ####
 ####  --- Generating test set ---
@@ -317,7 +321,7 @@ registerDoParallel (cl)
 
 
 tb_res_dist <- foreach (i = 1:nrow(y_train), .combine =rbind, .packages =c('geosphere') ) %dopar%{
-    print (i)
+    #print (i)
   
     #i <- 910
     v1 <- y_train[i,1][[1]]
@@ -499,18 +503,90 @@ if (MAKE_PLOTS) plot_all_y_train (not_matched, data, img_path="non_matched")
 
 
 
-
+# reading factors and train set
 all_factors <- read.table("pr_data/factors.csv", sep=",")
 y_train <- read.table("pr_data/y_train.csv", sep=",")
-
-
 y_train$class <- as.factor(y_train$class)
-clf <- randomForest(all_factors,y_train$class,ntree=150,maxnodes=20)
-round(importance(clf), 2)
 
-y_pred <- predict(clf, all_factors, type="response")
 
-confusionMatrix(y_pred, y_train$class )
+# 1. designing cross validation
+n_folds <- createFolds(y_train$class, k = 5, list = FALSE)
+
+n_folds_auc <- data.frame(NULL)
+for (i in unique(n_folds)){
+  
+  train_X <- all_factors[!(n_folds==i), 3:ncol(all_factors)]
+  test_X <- all_factors[n_folds==i, 3:ncol(all_factors)]
+  
+  train_y <- y_train[!(n_folds==i),]
+  test_y <- y_train[(n_folds==i),]
+
+  clf <- randomForest(train_X,train_y$class,ntree=150,maxnodes=20)
+  round(importance(clf), 2)
+  
+  y_pred <- predict(clf, test_X, type="response")
+  cf_mat <- confusionMatrix(y_pred, test_y$class )
+  cf_mat$byClass[]
+
+  rocValues <- roc(y_pred, as.numeric.factor(test_y$class))
+  
+  n_folds_auc[i,'fold'] = i
+  n_folds_auc[i,'auc'] = rocValues$auc
+  n_folds_auc[i,'f1'] = f1_measure (y_pred, test_y$class)
+}
+
+
+
+# 2. making grid search
+param_grid <- expand.grid(par_ntree = seq(50,300,10), par_maxnodes = seq(5,20,1))
+overall_score <- data.frame(NULL)
+names(overall_score) <- c("df","df")
+
+for (g in 1:nrow(param_grid)){
+  
+  if (g %% 20 == 0) print (paste0("% completed: ",round(g/nrow(param_grid)*100,0)))
+  
+  params <-param_grid[g,]
+  n_folds_auc <- data.frame(NULL)
+  for (i in unique(n_folds)){
+    
+    #print (i)
+    train_X <- all_factors[!(n_folds==i), 3:ncol(all_factors)]
+    test_X <- all_factors[n_folds==i, 3:ncol(all_factors)]
+    
+    train_y <- y_train[!(n_folds==i),]
+    test_y <- y_train[(n_folds==i),]
+    
+    clf <- randomForest(train_X,train_y$class,ntree=params[[1]],maxnodes=params[[2]])
+    round(importance(clf), 2)
+    
+    y_pred <- predict(clf, test_X, type="response")
+    cf_mat <- confusionMatrix(y_pred, test_y$class )
+    cf_mat$byClass[]
+    
+    rocValues <- roc(y_pred, as.numeric.factor(test_y$class))
+    
+    n_folds_auc[i,'fold'] = i
+    n_folds_auc[i,'auc'] = rocValues$auc
+    n_folds_auc[i,'f1'] = f1_measure (y_pred, test_y$class)
+  }
+  
+  auc_mean = mean(n_folds_auc$auc)
+  f1_mean = mean(n_folds_auc$f1)
+  f1_min = min(n_folds_auc$f1)
+  d_row = c(params[[1]],params[[2]],auc_mean,f1_mean,f1_min)
+  overall_score <- rbind(overall_score,d_row)
+}
+
+
+names (overall_score) <- c('p1','p2','auc_mean','f1_mean','f1_min')
+overall_score
+
+
+
+
+
+
 
 
      

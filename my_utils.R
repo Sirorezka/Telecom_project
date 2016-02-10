@@ -25,6 +25,18 @@ generate_all_combin <- function (ids){
 
 
 ###
+###  Calculate f1 metric
+###
+
+f1_measure <- function (y_pred, y_real){
+  precision <- sum((y_pred==1) & (y_real==1)) / sum((y_pred==1) )
+  recall <- sum((y_pred==1) & (y_real==1)) / sum((y_real==1) )
+  f1 <- 2 * precision * recall / sum(precision +recall)
+  f1
+}
+
+
+###
 ###  Converts factors to numeric
 ###
 
