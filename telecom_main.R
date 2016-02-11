@@ -208,7 +208,7 @@ length(unique(data$msisdn))
 if (USE_TEST_DATA) {
 
   all_msisdn <- unique(data$msisdn)
-  y_test <- generate_all_combin (all_msisdn[600:900])
+  y_test <- generate_all_combin (all_msisdn)
   y_test[,"class"] <- -1
 
   # removing train set from the test set
