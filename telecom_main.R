@@ -208,8 +208,16 @@ length(unique(data$msisdn))
 if (USE_TEST_DATA) {
 
   all_msisdn <- unique(data$msisdn)
-  y_test <- generate_all_combin (all_msisdn)
+  y_test <- generate_all_combin (all_msisdn[600:900])
   y_test[,"class"] <- -1
+
+  # removing train set from the test set
+  aa <- paste0(y_test[,"V1"],"_",y_test[,"V2"], collapse = NULL)
+  bb <- paste0(data_fact[,1],"_",data_fact[,2], collapse = NULL)
+  class1 <- aa %in% bb
+  print ("rows removed from test data: ", sum(class1))
+  y_test <- y_test[!class1,]
+  
   
   y_train <- bind_rows (y_test,y_train)
   max(y_train$class)
@@ -232,6 +240,30 @@ tt <- data[,c('msisdn','cid')] %>% group_by(msisdn) %>% summarise(cids = list(un
 all_factors <- all_factors %>% left_join (tt, by = c('V1' = 'msisdn'), copy= T)
 all_factors <- all_factors %>% left_join (tt, by = c('V2' = 'msisdn'), copy= T)
 names(all_factors)[3:4] <- c('cids_V1','cids_V2') 
+
+
+
+# Computing Total Matches
+all_factors <- all_factors %>% group_by(V1,V2) %>% 
+  mutate(cid_match =length(intersect(cids_V1[[1]],cids_V2[[1]])))
+
+
+
+# Computing Differences in both sets
+all_factors <- all_factors %>% group_by(V1,V2) %>% 
+  mutate(cid_non_match =length(union(setdiff(cids_V1[[1]],cids_V2[[1]]),setdiff(cids_V2[[1]],cids_V1[[1]]))))
+
+
+# Computing Max non-match path
+all_factors <- all_factors %>% group_by(V1,V2) %>% 
+  mutate(cid_max_non_match =max(length(setdiff(cids_V1[[1]],cids_V2[[1]])),length(setdiff(cids_V2[[1]],cids_V1[[1]]))))
+
+# Computing Min non-match path
+all_factors <- all_factors %>% group_by(V1,V2) %>% 
+  mutate(cid_min_non_match =min(length(setdiff(cids_V1[[1]],cids_V2[[1]])),length(setdiff(cids_V2[[1]],cids_V1[[1]]))))
+
+
+
 
 
 # computing SymmetricSimilarity
@@ -385,7 +417,11 @@ all_train_ids <- unique(c (y_train$V1,y_train$V2))
 all_train_ids <- as.data.frame(all_train_ids)
 names(all_train_ids) <- 'msisdn'
 
+
+ptm <- proc.time()
 new_base_stat <- get_all_nearest_stations (data_adj,all_train_ids,CONST_SHORT_PATH_VAL)
+print (proc.time()-ptm)
+
 
 nrow(new_base_stat)
 
@@ -408,6 +444,27 @@ all_factors <- all_factors %>% left_join (tt, by = c('V1' = 'msisdn'), copy= T)
 all_factors <- all_factors %>% left_join (tt, by = c('V2' = 'msisdn'), copy= T)
 
 colnames(all_factors)[(ncol(all_factors)-1):ncol(all_factors)] <- c('cids_adj_V1','cids_adj_V2')
+
+
+
+# Computing Total Matches
+all_factors <- all_factors %>% group_by(V1,V2) %>% 
+  mutate(cid_match_adj =length(intersect(cids_adj_V1[[1]],cids_adj_V2[[1]])))
+
+
+# Computing Differences in both sets
+all_factors <- all_factors %>% group_by(V1,V2) %>% 
+  mutate(cid_non_match_adj =length(union(setdiff(cids_adj_V1[[1]],cids_adj_V2[[1]]),setdiff(cids_adj_V2[[1]],cids_adj_V1[[1]]))))
+
+
+# Computing Max non-match path
+all_factors <- all_factors %>% group_by(V1,V2) %>% 
+  mutate(cid_max_non_match_adj =max(length(setdiff(cids_adj_V1[[1]],cids_adj_V2[[1]])),length(setdiff(cids_adj_V2[[1]],cids_adj_V1[[1]]))))
+
+# Computing Min non-match path
+all_factors <- all_factors %>% group_by(V1,V2) %>% 
+  mutate(cid_min_non_match_adj =min(length(setdiff(cids_adj_V1[[1]],cids_adj_V2[[1]])),length(setdiff(cids_adj_V2[[1]],cids_adj_V1[[1]]))))
+
 
 
 
@@ -425,61 +482,6 @@ all_factors <- all_factors %>% group_by(V1,V2) %>%
 all_factors <- all_factors %>% group_by(V1,V2) %>% 
   mutate(s3_adj =length(intersect(cids_adj_V1[[1]],cids_adj_V2[[1]]))/ ((length(cids_adj_V1[[1]]) +length(cids_adj_V2[[1]]))/2 ))
 
-
-
-
-##    
-##    Calculate nearest points for every path
-##
-
-CONST_SHORT_PATH_VAL <- 99
-
-data_adj <- data    # we will add new rows to the copy of data
-all_train_ids <- unique(c (y_train$V1,y_train$V2))
-all_train_ids <- as.data.frame(all_train_ids)
-names(all_train_ids) <- 'msisdn'
-
-new_base_stat <- get_all_nearest_stations (data_adj,all_train_ids,CONST_SHORT_PATH_VAL)
-
-
-print ("IMPORTANT STATS:")
-nrow(new_base_stat)
-nrow(data_adj)
-data_adj <- bind_rows(data_adj, new_base_stat)
-nrow(data_adj)
-
-
-
-###
-###  Calculating new SS, S2, S3 measures for data_adj
-###
-
-
-
-# tt will have all cids
-tt <- data_adj[,c('msisdn','cid')] %>% group_by(msisdn) %>% summarise(cids_adj = list(unique(cid)))
-
-all_factors <- all_factors %>% left_join (tt, by = c('V1' = 'msisdn'), copy= T)
-all_factors <- all_factors %>% left_join (tt, by = c('V2' = 'msisdn'), copy= T)
-
-names(all_factors)[21:22] <- c("cids_adj_V1_old", "cids_adj_V2_old")
-colnames(all_factors)[(ncol(all_factors)-1):ncol(all_factors)] <- c('cids_adj_V1','cids_adj_V2')
-
-
-
-# computing SymmetricSimilarity
-all_factors <- all_factors %>% group_by(V1,V2) %>% 
-  mutate(ss_adj_v2 =length(intersect(cids_adj_V1[[1]],cids_adj_V2[[1]]))/ length(unique(cids_adj_V1[[1]],cids_adj_V2[[1]])))
-
-
-# computing S2
-all_factors <- all_factors %>% group_by(V1,V2) %>% 
-  mutate(s2_adj_v2 =length(intersect(cids_adj_V1[[1]],cids_adj_V2[[1]]))/ min(length(cids_adj_V1[[1]]),length(cids_adj_V2[[1]])))
-
-
-# computing S3
-all_factors <- all_factors %>% group_by(V1,V2) %>% 
-  mutate(s3_adj_v2 =length(intersect(cids_adj_V1[[1]],cids_adj_V2[[1]]))/ ((length(cids_adj_V1[[1]]) +length(cids_adj_V2[[1]]))/2 ))
 
 
 
@@ -511,87 +513,9 @@ if (MAKE_PLOTS) plot_all_y_train (not_matched, data, img_path="non_matched")
 ###
 
 
-
-# reading factors and train set
-all_factors <- read.table("pr_data/factors.csv", sep=",")
-y_train <- read.table("pr_data/y_train.csv", sep=",")
-y_train$class <- as.factor(y_train$class)
-
-
-# 1. designing cross validation
-n_folds <- createFolds(y_train$class, k = 5, list = FALSE)
-
-n_folds_auc <- data.frame(NULL)
-for (i in unique(n_folds)){
-  
-  train_X <- all_factors[!(n_folds==i), 3:ncol(all_factors)]
-  test_X <- all_factors[n_folds==i, 3:ncol(all_factors)]
-  
-  train_y <- y_train[!(n_folds==i),]
-  test_y <- y_train[(n_folds==i),]
-
-  clf <- randomForest(train_X,train_y$class,ntree=150,maxnodes=20)
-  round(importance(clf), 2)
-  
-  y_pred <- predict(clf, test_X, type="response")
-  cf_mat <- confusionMatrix(y_pred, test_y$class )
-  cf_mat$byClass[]
-
-  rocValues <- roc(y_pred, as.numeric.factor(test_y$class))
-  
-  n_folds_auc[i,'fold'] = i
-  n_folds_auc[i,'auc'] = rocValues$auc
-  n_folds_auc[i,'f1'] = f1_measure (y_pred, test_y$class)
-}
-
-
-
-# 2. making grid search
-param_grid <- expand.grid(par_ntree = seq(50,300,10), par_maxnodes = seq(5,20,1))
-overall_score <- data.frame(NULL)
-names(overall_score) <- c("df","df")
-
-for (g in 1:nrow(param_grid)){
-  
-  if (g %% 20 == 0) print (paste0("% completed: ",round(g/nrow(param_grid)*100,0)))
-  
-  params <-param_grid[g,]
-  n_folds_auc <- data.frame(NULL)
-  for (i in unique(n_folds)){
-    
-    #print (i)
-    train_X <- all_factors[!(n_folds==i), 3:ncol(all_factors)]
-    test_X <- all_factors[n_folds==i, 3:ncol(all_factors)]
-    
-    train_y <- y_train[!(n_folds==i),]
-    test_y <- y_train[(n_folds==i),]
-    
-    clf <- randomForest(train_X,train_y$class,ntree=params[[1]],maxnodes=params[[2]])
-    round(importance(clf), 2)
-    
-    y_pred <- predict(clf, test_X, type="response")
-    cf_mat <- confusionMatrix(y_pred, test_y$class )
-    cf_mat$byClass[]
-    
-    rocValues <- roc(y_pred, as.numeric.factor(test_y$class))
-    
-    n_folds_auc[i,'fold'] = i
-    n_folds_auc[i,'auc'] = rocValues$auc
-    n_folds_auc[i,'f1'] = f1_measure (y_pred, test_y$class)
-  }
-  
-  auc_mean = mean(n_folds_auc$auc)
-  f1_mean = mean(n_folds_auc$f1)
-  f1_min = min(n_folds_auc$f1)
-  d_row = c(params[[1]],params[[2]],auc_mean,f1_mean,f1_min)
-  overall_score <- rbind(overall_score,d_row)
-}
-
-
-names (overall_score) <- c('p1','p2','auc_mean','f1_mean','f1_min')
-overall_score
-
-
+#
+# Logistic model was done in ipython
+#
 
 
 
@@ -600,9 +524,16 @@ overall_score
 ###   --- Generating final table with all results --- 
 ###
 
+#
+#   Some of the assumptions:   
+#
+#   1. Set high threshold for logistic probabilities. We will use 0.95
+#   2. Each 'msisdn' can have no more than 3 other phones - they will be selected by probability rate
+#
+
 
 y_train <- read.csv2 ("pr_data_final/y_train.csv", header= TRUE, sep = ",")
-y_pred <- read.csv2 ("pr_data_final/y_pred.csv", header= FALSE, sep = ",")
+y_pred <- read.csv2 ("pr_data_final/y_pred_log.csv", header= FALSE, sep = ",")
 y_train$class <- as.numeric.factor (y_pred[,1])
 y_train$prob <- as.numeric.factor(y_pred[,2])
 rm(y_pred)
@@ -619,7 +550,10 @@ get_recall <- function (y_train,data_fact){
     rm(bb)
     
     yy <- y_train[class1,]
-    yy <- unique(yy[order(yy$V1),])
+    ## yy <- unique(yy[order(yy$V1),])                      # removes duplicated train data
+    yy <- yy %>% group_by (V1,V2) %>% summarize (class=max(class),prob=max(prob))
+    yy <- as.data.frame(yy)
+
     yy[,'true_class'] <- 1
     print (paste0("% recall from the fact table: ",sum(yy$class == yy$true_class)/nrow(yy)))
 
@@ -636,18 +570,63 @@ get_intersection <- function (y_train,data_fact){
 }
 
 
+get_recall (y_train,data_fact )
+
+
 
 y_train <- y_train[y_train$class ==1,]  # we only need matching phones
-y_train <- unique(y_train)              # removes duplicated train data
+## y_train <- unique(y_train)              # removes duplicated train data
+y_train <- y_train %>% group_by (V1,V2) %>% summarize (class=max(class),prob=max(prob))  # removes duplicated train data
+y_train <- as.data.frame(y_train)
 
 
-y_train.filter()
-tt <- y_train %>% filter(prob>0.95) %>% group_by(V1) %>% summarize(n_numb = length(V2))
 
-tt <- y_train %>% filter(prob>0.95) 
-get_intersection (tt, data_fact)    
+# Make threshold of good probability which will show only true matches
+perf_tel_match <- y_train %>% filter(prob>0.95) 
+get_intersection (perf_tel_match, data_fact)    
 
 
-plot_all_y_train (tt[1:1000,1:2], data, img_path="tests")
+# plot_all_y_train (y_train[1:1000,1:2], data, img_path="tests")
 
+
+
+# Generate table with answer
+
+all_ids <- sort(unique(data$msisdn))
+users_table <- data.frame()  
+res_table   <- data.frame()          # for later use in graphing
+users_table <- rbind(users_table,c(0,0))  # dummy
+names (users_table) <- c('user_id','msisdn')
+
+
+for (i in 1:length(all_ids)){
+  #i <- 127
+  cur_id = all_ids[i]
+  
+  top_tbl <- perf_tel_match %>% filter (V1 == cur_id)
+  top_tbl
+  
+  # check that user id isn't in our table
+  if (!(cur_id %in%  users_table$user_id) & nrow(top_tbl)>0){
+
+      ord <- order(top_tbl$prob, decreasing = T) <=2
+      top_ids <- top_tbl$V2[ord]
+      df <- cbind(rep(cur_id,length(top_ids)),top_ids)
+      df <- as.data.frame(df)
+      res_table <- bind_rows(res_table,df)
+      
+      top_ids <- c(top_ids,cur_id)
+      df <- cbind(rep(i,length(top_ids)),top_ids)
+      df <- as.data.frame(df)
+      names(df) <- c('user_id','msisdn')
+      users_table <- bind_rows(users_table,df)
+    }
+  
+}
+
+users_table <- users_table[2:nrow(users_table),]
+
+plot_all_y_train (res_table, data, img_path="tests")
+
+write.table(users_table, "final - submission/05_user_ids.csv", sep=",")
 

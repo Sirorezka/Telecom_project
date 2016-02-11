@@ -45,6 +45,10 @@ as.numeric.factor <- function(x) {as.numeric(levels(x))[x]}
 
 
 
+###
+###  Plot train data
+###
+
 
 plot_all_y_train <- function (y_train, data, img_path ='plots_train_imei'){
   
@@ -78,37 +82,12 @@ plot_all_y_train <- function (y_train, data, img_path ='plots_train_imei'){
 }
 
 
-plot_all_fact_data <- function (data_fact, data, img_path ='plots_imei'){
-  
-  
-  for (i in 1:nrow(data_fact[,])){
-    
-    #i <- 1
-    gr1 <- data_fact[i,]  # msisdns that will be plotted
-    #gr_sample <- data[data[,'msisdn'] %in% gr1,c("msisdn","imei","tstamp","long","lat","start_angle","end_angle")]
-    gr_sample <- data[data[,'msisdn'] %in% gr1,]
-    class(gr_sample[,'msisdn']) <- 'character'
-    
-    
-    # generating plot labels and removing duplicated lables
-    d_labels <- as.character(gr_sample[,'imei']) 
-    labels_dupl <- duplicated (gr_sample[,c('imei','msisdn','long','lat')]) 
-    d_labels[labels_dupl] <- ""
-    
-    v_jitter <- runif(nrow(gr_sample), 0, 3) # labels jitter
-    
-    track_plot <- ggplot(gr_sample, aes(x= long, y=lat)) + geom_point(alpha=0.2, aes(color=device_type),size=8)
-    track_plot <- track_plot + geom_point(shape = 1,size = 8,colour = "black")
-    #track_plot <- track_plot+ geom_point() +geom_text(data=gr_sample, aes(x=long, y = lat,label=d_labels),size=4,hjust=0, vjust=v_jitter)
-    track_plot <- track_plot + facet_grid(. ~ msisdn ) + ggtitle(paste0("Series # ",i))
-    track_plot
-    
-    filename <- paste0(i,"_",data_fact[i,1],"_",data_fact[i,2],".jpg")
-    ggsave(filename, plot = track_plot, path = img_path, width = 14, height = 7,  dpi = 300)
-  }
-}
 
 
+
+##
+##  Build maps with all base stations
+##
 
 plot_cids_distrib <- function (data, img_path = "ppt_plots"){
  

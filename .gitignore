@@ -46,6 +46,9 @@ plots_imei/*.jpg
 plots_train_imei/*.jpg
 non_matched/*.jpg
 pr_data - final_copy/*.*
+pr_data_final/*.*
+tests/*.*
+pr_data/*.*
 
 # Directories potentially created on remote AFP share
 .AppleDB
