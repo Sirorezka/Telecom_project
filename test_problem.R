@@ -39,8 +39,8 @@ MAKE_PLOTS = F
 
 
 # mywd <- "C:/Users/Administrator/Desktop/Telecom_project"
-# mywd <- "C:/Users/Johnny/Documents/GitHub/test_task"
-mywd <- "C:/Users/Ivan.Petrov/Documents/GitHub/test_task"
+mywd <- "C:/Users/Johnny/Documents/GitHub/test_task"
+#mywd <- "C:/Users/Ivan.Petrov/Documents/GitHub/test_task"
 setwd (mywd)
 getwd()
 source ('my_utils.R')
