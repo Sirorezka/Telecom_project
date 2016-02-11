@@ -56,7 +56,6 @@ plot_all_y_train <- function (y_train, data, img_path ='plots_train_imei'){
     
     #i <- 400
     gr1 <- y_train[i,]  # msisdns that will be plotted
-    #gr_sample <- data[data[,'msisdn'] %in% gr1,c("msisdn","imei","tstamp","long","lat","start_angle","end_angle")]
     gr_sample <- data[data[,'msisdn'] %in% gr1,]
     class(gr_sample[,'msisdn']) <- 'character'
     
@@ -135,7 +134,7 @@ get_triangle_area <- function (point1){
 
 
 ##
-##  Function return ggplot of two triangles
+##  Function return ggplot with two triangles (coverage areas)
 ##
 ##  - help to analyse if we have intersections
 ##
@@ -161,7 +160,7 @@ plot_triangle <- function (point1,point2){
 ##
 ##  Function return ggplot of two triangles
 ##
-##  - help to analyse if we have intersections
+##  - Visualize base station (point) intersection with group of points definded by table with 'long', 'lat'
 ##
 ##  input:
 ##  ***  point1 should have c('long','lat','max_dist','start_angle','end_angle')
@@ -353,9 +352,9 @@ get_all_inner_intersec <- function (point1,point2, p1_all_coord,p2_all_coord){
 
 
 ###
-###  --- Function computes nearest base station to the selected ids
+###  --- Function computes all nearest base station to the selected ids
 ###
-###   data_adj - should have same structure as original data table
+###   data_adj - should have same structure as the original data table
 ###   all_train_ids - ids that we want to process         
 ###   SHOR_PATH_VAL - filter for ids. Only ids with number of base stations equal or less than constant will be processed
 ###

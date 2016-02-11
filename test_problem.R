@@ -41,8 +41,8 @@ USE_TEST_DATA = F
 
 
 # mywd <- "C:/Users/Administrator/Desktop/Telecom_project"
-#mywd <- "C:/Users/Johnny/Documents/GitHub/test_task"
-mywd <- "C:/Users/Ivan.Petrov/Documents/GitHub/test_task"
+  mywd <- "C:/Users/Johnny/Documents/GitHub/test_task"
+# mywd <- "C:/Users/Ivan.Petrov/Documents/GitHub/test_task"
 setwd (mywd)
 getwd()
 source ('my_utils.R')
@@ -217,6 +217,13 @@ if (USE_TEST_DATA) {
 }
 
 
+data_cids <- data %>% group_by(msisdn) %>% summarize (base_st_visited = length(unique(cid)))
+
+qplot(data_cids$base_st_visited, 
+      xlim = c(-1,300),
+      geom = "histogram",
+      xlab = "Number of Base Stations visited by one msisdn",
+      ylab = "group count")
 
 ###
 ###  ---  Generating factors  ---

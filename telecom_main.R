@@ -186,7 +186,7 @@ y_train[class1,"class"] <- 1
 # Sampling training data:
 #
 # - We need to take all pairs from class 1. 
-# - And for clazz 0 we will sample some points that not present in original data
+# - And for claûû 0 we will sample some msisdn combinations that doesn't present in the original data
 
 y_train_1 <- y_train[y_train$class==1,]
 y_train_0 <- y_train[y_train$class==0,]
@@ -349,8 +349,10 @@ all_factors <- all_factors [,!(names(all_factors) %in% c('vend_lst.x','vend_lst.
 if (MAKE_PLOTS)  plot_cids_distrib(data,img_path = "ppt_plots")
 
 
+##
 ##  Computing L1 and L2 distances between points 
-##  
+##  i.e. how will the track change if we will join both msisdn's together in one route 
+##
 
 ptm <- proc.time()
 mm <- detectCores()
@@ -405,14 +407,15 @@ rm(tb_res_dist)
 ##
 ##  Descr: First select all 'msidns' which visited less or equal than 3 base stations.
 ##         Then for each of this stations we search for stations that have cross signals
-##         with stations visited by this 'msidns'. We will call this new stations - possible locations.
-##         We add later stations to the path list
-##
+##         with each base station visited by this 'msidns'. We will call this new stations - 
+##         possible locations. We add later stations to the path list
+##         
+
 
 
 CONST_SHORT_PATH_VAL <- 3
 
-data_adj <- data    # we will add new rows to the copy of data
+data_adj <- data    # we will add new rows to the copy of the data table
 all_train_ids <- unique(c (y_train$V1,y_train$V2))
 all_train_ids <- as.data.frame(all_train_ids)
 names(all_train_ids) <- 'msisdn'
@@ -581,7 +584,7 @@ y_train <- as.data.frame(y_train)
 
 
 
-# Make threshold of good probability which will show only true matches
+# High threshold to remove all non-similar routes
 perf_tel_match <- y_train %>% filter(prob>0.95) 
 get_intersection (perf_tel_match, data_fact)    
 
