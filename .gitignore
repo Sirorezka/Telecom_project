@@ -56,3 +56,4 @@ pr_data/*.*
 Network Trash Folder
 Temporary Items
 .apdisk
+*.Rhistory
